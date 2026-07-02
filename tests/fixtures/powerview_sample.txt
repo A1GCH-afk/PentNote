@@ -1,0 +1,22 @@
+PowerView PS C:\> Get-NetUser | select samaccountname, description
+samaccountname description
+-------------- -----------
+Administrator  Built-in administrator
+robb.stark     King in the North
+brandon.stark  Three-eyed raven
+
+samaccountname : svc_sql
+distinguishedname : CN=svc_sql,CN=Users,DC=north,DC=sevenkingdoms,DC=local
+serviceprincipalname : MSSQLSvc/winterfell.north.sevenkingdoms.local:1433
+
+name : Domain Admins
+member_count : 5
+
+name : WINTERFELL.north.sevenkingdoms.local
+trustedfordelegation : True
+
+PS C:\> Find-LocalAdminAccess
+WINTERFELL.north.sevenkingdoms.local
+
+PS C:\> Invoke-ACLScanner
+ObjectDN=CN=Robb,CN=Users,DC=north,DC=local; ActiveDirectoryRights=GenericAll

@@ -1,0 +1,4 @@
+nuclei v3.2.0
+[cve-2024-12345] [high] [http] https://app.lab.local/login
+[exposed-panel] [medium] [http] https://app.lab.local/admin
+

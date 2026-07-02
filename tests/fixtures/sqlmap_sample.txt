@@ -1,0 +1,2 @@
+sqlmap identified the following injection point(s)
+parameter 'id' is vulnerable and appears to be injectable

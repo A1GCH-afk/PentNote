@@ -1,0 +1,41 @@
+---
+tags: [findings-index, {{ tool }}]
+tool: {{ tool|yaml_scalar }}
+host: {{ host|yaml_scalar }}
+date: {{ date }}
+total_findings: {{ findings | length }}
+total_hosts: {{ hosts | length }}
+total_credentials: {{ credentials | length }}
+---
+
+# {{ tool | title }} - {{ host }}
+
+{% if is_empty %}
+> [!success] Scan Completed - No Findings
+> {{ tool | title }} ran successfully and produced no findings.
+> This may indicate good security posture for this area.
+{% if raw_path %}
+> Raw output saved: `{{ raw_path }}`
+{% endif %}
+
+{% else %}
+**Findings:** {{ findings | length }}
+
+| Critical | High | Medium | Low | Info |
+| --- | --- | --- | --- | --- |
+| {{ critical_count }} | {{ high_count }} | {{ medium_count }} | {{ low_count }} | {{ info_count }} |
+
+## All Findings
+
+| Finding | Severity | MITRE |
+| --- | --- | --- |
+{% for row in rows -%}
+| [[{{ row.short_slug }}]] | {{ row.severity }} | {{ row.mitre }} |
+{% endfor %}
+{% endif %}
+
+{% if raw_path %}
+## Raw Output
+
+Saved to: `{{ raw_path }}`
+{% endif %}

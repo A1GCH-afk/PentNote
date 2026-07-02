@@ -1,0 +1,9 @@
+Impacket v0.12.0 - Copyright Fortra, LLC and its affiliated companies
+
+[*] Service RemoteRegistry is in stopped state
+[*] Target system bootKey: 0x11111111111111111111111111111111
+[*] Dumping local SAM hashes (uid:rid:lmhash:nthash)
+Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::
+Guest:501:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::
+[*] Cleaning up...
+

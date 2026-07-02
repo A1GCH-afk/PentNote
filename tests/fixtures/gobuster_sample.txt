@@ -1,0 +1,4 @@
+Gobuster v3.6
+/admin               (Status: 301) [Size: 0] [--> /admin/]
+/backup.zip          (Status: 200) [Size: 1024]
+

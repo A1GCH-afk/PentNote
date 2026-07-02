@@ -1,0 +1,153 @@
+{
+  "type": "bundle",
+  "techniques": [
+    {
+      "id": "T1046",
+      "name": "Network Service Discovery",
+      "tactic": "Discovery",
+      "description": "Adversaries may attempt to get a listing of services running on remote hosts.",
+      "keywords": ["network", "service", "discovery", "scan", "nmap", "port"]
+    },
+    {
+      "id": "T1557.001",
+      "name": "LLMNR/NBT-NS Poisoning and SMB Relay",
+      "tactic": "Credential Access",
+      "description": "Adversaries may spoof name resolution responses or relay SMB authentication.",
+      "keywords": ["smb", "relay", "signing", "poisoning", "llmnr", "nbt-ns"]
+    },
+    {
+      "id": "T1558.003",
+      "name": "Kerberoasting",
+      "tactic": "Credential Access",
+      "description": "Adversaries may request Kerberos service tickets and crack them offline.",
+      "keywords": ["kerberoast", "kerberos", "ticket", "spn", "service"]
+    },
+    {
+      "id": "T1558.004",
+      "name": "AS-REP Roasting",
+      "tactic": "Credential Access",
+      "description": "Adversaries may obtain AS-REP data for users without Kerberos preauthentication.",
+      "keywords": ["asrep", "as-rep", "preauth", "kerberos", "roast"]
+    },
+    {
+      "id": "T1550.002",
+      "name": "Pass the Hash",
+      "tactic": "Defense Evasion",
+      "description": "Adversaries may authenticate with captured password hashes.",
+      "keywords": ["pass", "hash", "ntlm", "credential", "pwn3d"]
+    },
+    {
+      "id": "T1110.003",
+      "name": "Password Spraying",
+      "tactic": "Credential Access",
+      "description": "Adversaries may use one password against many accounts.",
+      "keywords": ["password", "spray", "spraying", "login", "authentication"]
+    },
+    {
+      "id": "T1021.001",
+      "name": "Remote Desktop Protocol",
+      "tactic": "Lateral Movement",
+      "description": "Adversaries may use RDP to log into remote systems.",
+      "keywords": ["rdp", "remote", "desktop", "3389", "terminal"]
+    },
+    {
+      "id": "T1021.002",
+      "name": "SMB/Windows Admin Shares",
+      "tactic": "Lateral Movement",
+      "description": "Adversaries may use SMB and admin shares for remote access.",
+      "keywords": ["smb", "admin", "share", "445", "psexec"]
+    },
+    {
+      "id": "T1021.006",
+      "name": "Windows Remote Management",
+      "tactic": "Lateral Movement",
+      "description": "Adversaries may use WinRM for remote execution.",
+      "keywords": ["winrm", "5985", "5986", "powershell", "remote"]
+    },
+    {
+      "id": "T1003.001",
+      "name": "LSASS Memory",
+      "tactic": "Credential Access",
+      "description": "Adversaries may dump LSASS memory for credentials.",
+      "keywords": ["lsass", "dump", "memory", "credential", "mimikatz"]
+    },
+    {
+      "id": "T1003.002",
+      "name": "Security Account Manager",
+      "tactic": "Credential Access",
+      "description": "Adversaries may dump SAM hashes from Windows hosts.",
+      "keywords": ["sam", "hash", "secretsdump", "ntlm", "administrator"]
+    },
+    {
+      "id": "T1003.006",
+      "name": "DCSync",
+      "tactic": "Credential Access",
+      "description": "Adversaries may use DCSync to replicate directory secrets.",
+      "keywords": ["dcsync", "replication", "domain", "secrets", "ntds"]
+    },
+    {
+      "id": "T1558.001",
+      "name": "Golden Ticket",
+      "tactic": "Credential Access",
+      "description": "Adversaries may forge Kerberos ticket-granting tickets.",
+      "keywords": ["golden", "ticket", "krbtgt", "kerberos", "forge"]
+    },
+    {
+      "id": "T1083",
+      "name": "File and Directory Discovery",
+      "tactic": "Discovery",
+      "description": "Adversaries may enumerate files and directories.",
+      "keywords": ["file", "directory", "path", "listing", "gobuster"]
+    },
+    {
+      "id": "T1602.001",
+      "name": "SNMP MIB Dump",
+      "tactic": "Collection",
+      "description": "Adversaries may dump SNMP MIB data.",
+      "keywords": ["snmp", "community", "mib", "walk", "public"]
+    },
+    {
+      "id": "T1210",
+      "name": "Exploitation of Remote Services",
+      "tactic": "Lateral Movement",
+      "description": "Adversaries may exploit remote services for access.",
+      "keywords": ["exploit", "remote", "service", "ms17-010", "zerologon"]
+    },
+    {
+      "id": "T1547.012",
+      "name": "Print Processors",
+      "tactic": "Persistence",
+      "description": "Adversaries may abuse print processors for persistence.",
+      "keywords": ["print", "spooler", "printer", "processor", "spoolss"]
+    },
+    {
+      "id": "T1069.002",
+      "name": "Domain Groups",
+      "tactic": "Discovery",
+      "description": "Adversaries may enumerate domain groups.",
+      "keywords": ["bloodhound", "domain", "group", "acl", "path"]
+    },
+    {
+      "id": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "tactic": "Initial Access",
+      "description": "Adversaries may exploit internet-facing applications.",
+      "keywords": ["web", "application", "exploit", "nuclei", "nikto"]
+    },
+    {
+      "id": "T1005",
+      "name": "Data from Local System",
+      "tactic": "Collection",
+      "description": "Adversaries may collect data from local systems.",
+      "keywords": ["data", "local", "files", "download", "loot"]
+    },
+    {
+      "id": "T1059",
+      "name": "Command and Scripting Interpreter",
+      "tactic": "Execution",
+      "description": "Adversaries may execute commands and scripts.",
+      "keywords": ["command", "script", "shell", "powershell", "cmd"]
+    }
+  ]
+}
+

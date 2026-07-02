@@ -1,0 +1,67 @@
+Evil-WinRM shell v3.9
+
+Info: Establishing connection to remote endpoint
+*Evil-WinRM* PS C:\Users\robb.stark\Desktop> net user /domain
+
+User accounts for \\
+
+-------------------------------------------------------------------------------
+Administrator            arya.stark               brandon.stark
+catelyn.stark            eddard.stark             Guest
+hodor                    jeor.mormont             jon.snow
+krbtgt                   rickon.stark             robb.stark
+samwell.tarly            sansa.stark              sql_svc
+vagrant
+The command completed with one or more errors.
+
+*Evil-WinRM* PS C:\Users\robb.stark\Desktop> whoami /all
+
+USER INFORMATION
+----------------
+
+User Name        SID
+================ =============================================
+north\robb.stark S-1-5-21-851409759-2273965250-4120716336-1113
+
+
+GROUP INFORMATION
+-----------------
+
+Group Name                                 Type             SID                                           Attributes
+========================================== ================ ============================================= ===============================================================
+Everyone                                   Well-known group S-1-1-0                                       Mandatory group, Enabled by default, Enabled group
+BUILTIN\Administrators                     Alias            S-1-5-32-544                                  Mandatory group, Enabled by default, Enabled group, Group owner
+NORTH\Stark                                Group            S-1-5-21-851409759-2273965250-4120716336-1106 Mandatory group, Enabled by default, Enabled group
+
+
+PRIVILEGES INFORMATION
+----------------------
+
+Privilege Name                            Description                                                        State
+========================================= ================================================================== =======
+SeBackupPrivilege                         Back up files and directories                                      Enabled
+SeRestorePrivilege                        Restore files and directories                                      Enabled
+SeDebugPrivilege                          Debug programs                                                     Enabled
+SeImpersonatePrivilege                    Impersonate a client after authentication                          Enabled
+
+*Evil-WinRM* PS C:\Users\robb.stark\Desktop> net user arya.stark /domain
+User name                    arya.stark
+Full Name
+Comment                      Arya Stark
+Account active               Yes
+Password expires             Never
+Global Group memberships     *Domain Users         *Stark
+The command completed successfully.
+
+*Evil-WinRM* PS C:\Users\robb.stark\Desktop> net group /domain
+
+Group Accounts for \\
+
+-------------------------------------------------------------------------------
+*Domain Admins
+*Domain Users
+*Stark
+The command completed with one or more errors.
+
+*Evil-WinRM* PS C:\Users\robb.stark\Desktop> exit
+Info: Exiting with code 0

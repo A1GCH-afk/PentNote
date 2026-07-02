@@ -1,0 +1,9 @@
+ADVISORY: linPEAS
+
+SUID Binary: /usr/bin/bash
+User alice may run the following commands:
+    (root) NOPASSWD: ALL
+
+Possible kernel exploit: CVE-2021-4034 severity unknown
+world-writable cron file: /etc/cron.d/backup
+/etc/shadow readable by current user

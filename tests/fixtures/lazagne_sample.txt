@@ -1,0 +1,24 @@
+|====================================================================|
+|                        The LaZagne Project                         |
+|====================================================================|
+
+########## User: robb.stark ##########
+
+------------------- Firefox -------------------
+[+] 1 passwords have been found.
+URL:      http://intranet.north.local
+Login:    robb.stark
+Password: WinterIsComing123!
+
+------------------- Chrome -------------------
+URL:      http://mail.north.local
+Login:    arya.stark
+Password: Needle123!
+
+------------------- IE -------------------
+Login:    sansa.stark
+Password: LemonCake123!
+
+------------------- Windows Secrets -------------------
+Login:    administrator
+Password: 8846f7eaee8fb117ad06bdd830b7586c

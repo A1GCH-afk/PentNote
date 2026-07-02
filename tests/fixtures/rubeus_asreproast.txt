@@ -1,0 +1,5 @@
+[*] Action: asreproast
+
+[*] SamAccountName         : john
+[*] DistinguishedName      : CN=john,CN=Users,DC=corp,DC=local
+[*] Hash                   : $krb5asrep$23$john@corp.local:ABCDEF

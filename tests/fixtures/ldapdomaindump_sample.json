@@ -1,0 +1,14 @@
+{
+  "meta": {"tool": "ldapdomaindump"},
+  "domain": "LAB.LOCAL",
+  "users": [
+    {"name": "alice", "sAMAccountName": "alice", "adminCount": 0}
+  ],
+  "groups": [
+    {"name": "Domain Admins", "adminCount": 1}
+  ],
+  "computers": [
+    {"name": "DC01$", "operatingSystem": "Windows Server 2019"}
+  ]
+}
+

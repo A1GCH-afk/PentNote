@@ -1,0 +1,27 @@
+{
+  "meta": {"tool": "bloodhound"},
+  "nodes": [
+    {
+      "id": "ALICE@LAB.LOCAL",
+      "name": "ALICE@LAB.LOCAL",
+      "type": "user",
+      "domain": "LAB.LOCAL",
+      "properties": {"owned": true}
+    },
+    {
+      "id": "DOMAIN ADMINS@LAB.LOCAL",
+      "name": "DOMAIN ADMINS@LAB.LOCAL",
+      "type": "group",
+      "domain": "LAB.LOCAL",
+      "properties": {"highvalue": true}
+    }
+  ],
+  "edges": [
+    {
+      "source": "ALICE@LAB.LOCAL",
+      "target": "DOMAIN ADMINS@LAB.LOCAL",
+      "relationship": "MemberOf"
+    }
+  ]
+}
+

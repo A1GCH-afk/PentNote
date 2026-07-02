@@ -1,0 +1,22 @@
+---
+tags: [pentnote, mitre]
+engagement: {{ engagement_name }}
+date: {{ iso_timestamp }}
+---
+
+# MITRE ATT&CK Summary
+
+## Techniques
+{% for technique in techniques -%}
+- {{ technique }}
+{% else -%}
+- No mapped techniques yet.
+{% endfor %}
+
+## Tactic Coverage
+{% for tactic, percent in coverage.items() -%}
+- {{ tactic }}: {{ "%.2f"|format(percent) }}%
+{% else -%}
+- No coverage yet.
+{% endfor %}
+

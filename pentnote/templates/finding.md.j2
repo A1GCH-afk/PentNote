@@ -1,0 +1,69 @@
+---
+tags: {{ tags }}
+severity: {{ finding.severity.value }}
+host: {{ primary_host|yaml_scalar }}
+hostname: {{ (hostname or "")|yaml_scalar }}
+engagement: {{ engagement_name|yaml_scalar }}
+date: {{ iso_timestamp }}
+tool: {{ tool_name|yaml_scalar }}
+{% if finding.chain_member %}
+chain: {{ finding.chain_member|yaml_scalar }}
+{% endif %}
+hash: {{ finding.hash }}
+---
+
+> [!danger] {{ finding.title|md_cell }}
+> {{ description|md_cell }}
+
+## Target Info
+| Field | Value |
+| --- | --- |
+{% for field, value in target_info -%}
+| {{ field|md_cell }} | {{ value|md_cell }} |
+{% endfor %}
+
+## MITRE ATT&CK Mapping
+| TTP | Name | Tactic | Source | Confidence |
+| --- | --- | --- | --- | --- |
+{% for match in finding.mitre_matches -%}
+| {{ match.technique_id|md_cell }} | {{ match.technique_name|md_cell }} | {{ match.tactic|md_cell }} | {{ match.source|md_cell }} | {{ "%.0f%%"|format(match.confidence * 100) }} |
+{% else -%}
+| N/A | N/A | N/A | N/A | N/A |
+{% endfor %}
+
+## Severity
+**CVSS (approximate):** {{ "%.1f"|format(cvss) }} / {{ finding.severity.value }}
+
+{% if finding.chain_member %}
+## Attack Chain Progress
+{% for step in chain_steps -%}
+- [{{ "x" if step.completed else " " }}] {{ step.label }}
+{% endfor %}
+
+{% endif %}
+## D3FEND Countermeasures
+| Technique | D3FEND ID | Description |
+| --- | --- | --- |
+{% for defense in defenses -%}
+| {{ defense.technique_id|md_cell }} | {{ defense.defend_id|md_cell }} | {{ defense.description|md_cell }} |
+{% else -%}
+| N/A | N/A | N/A |
+{% endfor %}
+
+## Suggested Next Steps
+{% for step in finding.next_steps -%}
+- [ ] {{ step|fence_text }}
+{% else -%}
+- [ ] Review the evidence and validate impact.
+{% endfor %}
+
+{% if finding.source_command %}
+## Source
+```bash
+{{ finding.source_command }}
+```
+*Captured by Ghost Log*
+
+{% endif %}
+## Notes
+<!-- analyst notes here -->

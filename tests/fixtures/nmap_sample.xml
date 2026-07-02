@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sV -sC -p- -oX nmap_sample.xml 10.129.48.183">
+  <host>
+    <status state="up"/>
+    <address addr="10.129.48.183" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="wingdata.htb"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open"/>
+        <service name="ssh" product="OpenSSH" version="9.2p1 Debian 2+deb12u7"/>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http" product="Apache httpd" version="2.4.66"/>
+      </port>
+    </ports>
+    <os>
+      <osmatch name="Linux"/>
+    </os>
+  </host>
+</nmaprun>

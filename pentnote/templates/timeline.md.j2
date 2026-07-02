@@ -1,0 +1,22 @@
+---
+tags: [pentnote, timeline]
+engagement: {{ engagement_name }}
+date: {{ iso_timestamp }}
+---
+
+# Timeline
+
+{% for finding in findings -%}
+- {{ iso_timestamp }} - **{{ finding.severity.value }}** - {{ finding.title }}
+{% else -%}
+- {{ iso_timestamp }} - No findings recorded yet.
+{% endfor %}
+
+{% if workspace_log %}
+## Manual Log
+| Time | Source | Message |
+| --- | --- | --- |
+{% for entry in workspace_log -%}
+| {{ entry.date[:16].replace("T", " ") }} | {{ entry.source | default("manual", true) }} | {{ entry.message }}{% if entry.host %} ({{ entry.host }}){% endif %} |
+{% endfor %}
+{% endif %}

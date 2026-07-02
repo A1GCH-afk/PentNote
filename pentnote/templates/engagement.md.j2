@@ -1,0 +1,29 @@
+---
+tags: [pentnote, index]
+engagement: {{ engagement_name }}
+date: {{ iso_timestamp }}
+---
+
+# {{ engagement_name }}
+
+## Scope
+{% for item in scope -%}
+- {{ item }}
+{% else -%}
+- Not specified
+{% endfor %}
+
+## Findings
+{% for finding in findings -%}
+- **{{ finding.severity.value }}** - {{ finding.title }} (`{{ finding.hash }}`)
+{% else -%}
+- No findings recorded yet.
+{% endfor %}
+
+## MITRE ATT&CK
+{% for technique in techniques -%}
+- {{ technique }}
+{% else -%}
+- No mapped techniques yet.
+{% endfor %}
+

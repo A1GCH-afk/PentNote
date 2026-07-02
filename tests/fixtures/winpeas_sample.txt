@@ -1,0 +1,13 @@
+ADVISORY: winPEAS
+
+Interesting Services
+Unquoted Service Path: VulnSvc
+Path: C:\Program Files\Vuln App\service.exe
+
+AlwaysInstallElevated: YES
+
+Modifiable Services
+ServiceName: BackupSvc
+
+SAM Readable: C:\Windows\System32\config\SAM
+Password found in file: C:\inetpub\wwwroot\web.config

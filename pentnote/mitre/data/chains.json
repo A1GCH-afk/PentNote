@@ -1,0 +1,58 @@
+{
+  "full_ad_compromise": {
+    "label": "Full AD Compromise Path",
+    "severity": "CRITICAL",
+    "required_ttps": ["T1046", "T1558.003", "T1550.002", "T1003.002"],
+    "optional_ttps": ["T1003.006", "T1558.001"],
+    "message": "Complete Active Directory compromise path detected"
+  },
+  "kerberos_chain": {
+    "label": "Kerberos Attack Chain",
+    "severity": "CRITICAL",
+    "required_ttps": ["T1558.003", "T1558.004"],
+    "optional_ttps": ["T1558.001"],
+    "message": "Full Kerberos attack chain identified"
+  },
+  "credential_chain": {
+    "label": "Credential Access Chain",
+    "severity": "HIGH",
+    "required_ttps": ["T1003.001", "T1003.002", "T1550.002"],
+    "optional_ttps": [],
+    "message": "Complete credential harvesting chain detected"
+  },
+  "lateral_movement_chain": {
+    "label": "Lateral Movement Chain",
+    "severity": "HIGH",
+    "required_ttps": ["T1021.001", "T1021.002", "T1550.002"],
+    "optional_ttps": ["T1021.006"],
+    "message": "Lateral movement capability chain detected"
+  },
+  "web_compromise_chain": {
+    "label": "Web Application Compromise",
+    "severity": "HIGH",
+    "required_ttps": ["T1190", "T1083", "T1005"],
+    "optional_ttps": ["T1059"],
+    "message": "Web application compromise path detected"
+  },
+  "linux_privesc_chain": {
+    "label": "Linux Privilege Escalation Path",
+    "severity": "CRITICAL",
+    "required_ttps": ["T1548.001", "T1548.003", "T1003.008"],
+    "optional_ttps": ["T1053.003", "T1070.002"],
+    "message": "Linux privilege escalation path detected"
+  },
+  "windows_privesc_chain": {
+    "label": "Windows Privilege Escalation Path",
+    "severity": "CRITICAL",
+    "required_ttps": ["T1548.002", "T1574.001", "T1003.002"],
+    "optional_ttps": ["T1053.005", "T1070.001"],
+    "message": "Windows privilege escalation path detected"
+  },
+  "persistence_chain": {
+    "label": "Persistence Establishment Chain",
+    "severity": "HIGH",
+    "required_ttps": ["T1547.001", "T1136.001", "T1098"],
+    "optional_ttps": ["T1543.003", "T1505.003"],
+    "message": "Persistence mechanisms established"
+  }
+}

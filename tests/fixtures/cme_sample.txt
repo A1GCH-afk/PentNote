@@ -1,0 +1,3 @@
+SMB         192.168.56.10  445    DC01             [*] Windows Server 2019 x64 (name:DC01) (domain:LAB) (signing:False) (SMBv1:False)
+SMB         192.168.56.10  445    DC01             [+] LAB\alice:Password123! (Pwn3d!)
+

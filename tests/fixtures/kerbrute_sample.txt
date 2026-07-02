@@ -1,0 +1,5 @@
+__             __               __
+ / /_____  _____/ /_  _______  __/ /____
+kerbrute v1.0.3
+2026/04/26 12:00:00 >  [+] VALID USERNAME: alice@lab.local
+2026/04/26 12:00:01 >  [+] VALID LOGIN: LAB\bob:Winter2026!

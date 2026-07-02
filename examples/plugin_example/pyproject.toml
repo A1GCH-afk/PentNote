@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pentnote-myscanner-plugin"
+version = "0.1.0"
+description = "Example PentNote parser plugin for fictional MyScanner output"
+requires-python = ">=3.11"
+dependencies = ["pentnote>=1.0.0"]
+
+[project.entry-points."pentnote.parsers"]
+myscanner = "myparser.parser:MyScannerParser"
+
+[tool.hatch.build.targets.wheel]
+packages = ["myparser"]

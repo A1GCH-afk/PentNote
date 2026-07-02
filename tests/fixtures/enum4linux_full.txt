@@ -1,0 +1,32 @@
+enum4linux-ng.py 10.10.10.10
+[+] Server 10.10.10.10 allows sessions using username '', password ''
+[+] Domain: CORP
+[+] Null session allowed
+
+=======================================
+|    Users via RPC on 10.10.10.10    |
+=======================================
+[*] Enumerating users via 'querydispinfo'
+[+] Found 3 users via 'querydispinfo'
+index: 0x1 RID: 0x1f4 acb: 0x00000210 Account: Administrator
+index: 0x2 RID: 0x1f5 acb: 0x00000215 Account: Guest
+index: 0x3 RID: 0x44f acb: 0x00000210 Account: john
+
+=======================================
+|    Groups via RPC on 10.10.10.10   |
+=======================================
+Group: Domain Admins RID: 0x200
+Group: Domain Users RID: 0x201
+
+=======================================
+|    Shares via SMB on 10.10.10.10   |
+=======================================
+[+] Found 3 shares
+ADMIN$   Disk    Remote Admin
+C$       Disk    Default share
+Files    Disk    Company Files
+
+=======================================
+|    Password Policy on 10.10.10.10  |
+=======================================
+Minimum password length: 0

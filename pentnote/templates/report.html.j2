@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PentNote Report - {{ executive_summary.engagement_name }}</title>
+  <style>
+    :root {
+      --color-primary:#0f172a; --color-accent:#3b82f6; --color-accent-dim:#1d4ed8;
+      --color-critical:#dc2626; --color-high:#ea580c; --color-medium:#ca8a04;
+      --color-low:#16a34a; --color-info:#0284c7;
+      --bg-page:#f8fafc; --bg-card:#ffffff; --bg-header:#0f172a;
+      --text-main:#0f172a; --text-muted:#64748b; --border:#e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg-page:#0f172a; --bg-card:#1e293b; --bg-header:#020617;
+        --text-main:#f1f5f9; --text-muted:#94a3b8; --border:#334155; }
+    }
+    html.dark { --bg-page:#0f172a; --bg-card:#1e293b; --bg-header:#020617;
+      --text-main:#f1f5f9; --text-muted:#94a3b8; --border:#334155; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg-page); color:var(--text-main);
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      font-size:15px; line-height:1.6; }
+    h1,h2,h3 { font-weight:700; letter-spacing:-0.02em; line-height:1.15; }
+    h2 { margin-top:2.5rem; }
+    a { color:var(--color-accent); }
+    table { border-collapse:collapse; width:100%; margin:1rem 0; background:var(--bg-card); }
+    th,td { border:1px solid var(--border); padding:.65rem; text-align:left; vertical-align:top; }
+    th { color:var(--text-muted); font-size:.8rem; text-transform:uppercase; }
+    pre,code { background:rgba(100,116,139,.15); border-radius:6px; }
+    pre { padding:1rem; overflow:auto; white-space:pre-wrap; }
+    .container { max-width:1180px; margin:0 auto; padding:2rem; }
+    .cover { min-height:92vh; display:flex; flex-direction:column; justify-content:center;
+      padding:4rem; background:var(--bg-header); color:#f8fafc; }
+    .cover h1 { font-size:3rem; margin:.5rem 0; }
+    .cover-meta { display:grid; gap:.4rem; color:#cbd5e1; font-size:1.1rem; }
+    .confidential { margin-top:3rem; letter-spacing:.2em; color:#fecaca; font-weight:700; }
+    .theme-toggle { position:fixed; top:1rem; right:1rem; z-index:3; border:1px solid var(--border);
+      background:var(--bg-card); color:var(--text-main); padding:.5rem .75rem; border-radius:8px; cursor:pointer; }
+    .grid { display:grid; gap:1rem; }
+    .stats { grid-template-columns:repeat(4,minmax(0,1fr)); }
+    .card { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:1rem;
+      box-shadow:0 8px 22px rgba(15,23,42,.06); }
+    .stat-label { color:var(--text-muted); font-size:.75rem; text-transform:uppercase; font-weight:700; }
+    .stat-number { font-size:2rem; font-weight:800; }
+    .critical { color:var(--color-critical); } .high { color:var(--color-high); }
+    .medium { color:var(--color-medium); } .low { color:var(--color-low); } .info { color:var(--color-info); }
+    .dashboard { grid-template-columns:minmax(280px,420px) 1fr; align-items:center; }
+    .donut-wrap { display:flex; align-items:center; gap:1.5rem; }
+    .donut text { fill:var(--text-main); font-weight:800; }
+    .legend { display:grid; gap:.4rem; }
+    .legend span { display:inline-block; width:.8rem; height:.8rem; border-radius:2px; margin-right:.4rem; }
+    .risk-bar-row { display:grid; grid-template-columns:minmax(120px,260px) 1fr 3rem; gap:.75rem; align-items:center; margin:.7rem 0; }
+    .risk-track { height:.75rem; border-radius:999px; background:rgba(100,116,139,.18); overflow:hidden; }
+    .risk-fill { height:100%; border-radius:999px; }
+    .risk-score { font-weight:700; text-align:right; }
+    .badge { display:inline-flex; align-items:center; border-radius:999px; padding:.18rem .55rem; font-size:.75rem; font-weight:700; color:#fff; }
+    .badge.critical { background:var(--color-critical); color:#fff; }
+    .badge.high { background:var(--color-high); color:#fff; }
+    .badge.medium { background:var(--color-medium); color:#fff; }
+    .badge.low { background:var(--color-low); color:#fff; }
+    .badge.info { background:var(--color-info); color:#fff; }
+    .effort { color:var(--text-main); border:1px solid var(--border); background:rgba(100,116,139,.12); }
+    .chain-flow { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--color-accent); }
+    .finding-card { margin:1rem 0; background:var(--bg-card); border:1px solid var(--border); border-left:5px solid var(--border); border-radius:8px; overflow:hidden; }
+    .finding-card.severity-critical { border-left-color:var(--color-critical); }
+    .finding-card.severity-high { border-left-color:var(--color-high); }
+    .finding-card.severity-medium { border-left-color:var(--color-medium); }
+    .finding-card.severity-low { border-left-color:var(--color-low); }
+    .finding-card.severity-info { border-left-color:var(--color-info); }
+    .finding-summary { cursor:pointer; display:grid; grid-template-columns:auto 1fr auto; gap:.75rem; align-items:center; padding:1rem; }
+    .finding-body { padding:0 1rem 1rem; border-top:1px solid var(--border); }
+    .coverage-row { display:grid; grid-template-columns:180px 1fr 5rem; gap:.75rem; align-items:center; margin:.7rem 0; }
+    .coverage-track { height:.8rem; background:rgba(100,116,139,.18); border-radius:999px; overflow:hidden; }
+    .coverage-fill { height:100%; background:var(--color-accent); }
+    @media (max-width:800px) { .stats,.dashboard { grid-template-columns:1fr; } .cover { padding:2rem; } }
+    @media print {
+      .no-print { display:none; }
+      body { font-size:12px; background:#fff; }
+      .card { box-shadow:none; border:1px solid #ccc; }
+      .cover { page-break-after:always; min-height:95vh; }
+      .page-break { page-break-before:always; }
+      .finding-card { page-break-inside:avoid; }
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+  </style>
+</head>
+<body>
+  <button onclick="toggleTheme()" class="theme-toggle no-print">Theme</button>
+
+  <section class="cover">
+    <div>PentNote Report</div>
+    <h1>{{ executive_summary.client_name or executive_summary.engagement_name }}</h1>
+    <div class="cover-meta">
+      <div>{{ executive_summary.engagement_type_label }}</div>
+      <div>{{ executive_summary.start_date_label or executive_summary.start_date or iso_timestamp[:10] }}</div>
+      <div>Prepared by: {{ executive_summary.operator or "PentNote Operator" }}</div>
+      <div>Scope: {{ executive_summary.scope | join(", ") if executive_summary.scope else "N/A" }}</div>
+    </div>
+    <div class="confidential">CONFIDENTIAL</div>
+  </section>
+
+  <main class="container">
+    <h2>Executive Summary Dashboard</h2>
+    <section class="grid stats">
+      <div class="card"><div class="stat-label critical">Critical</div><div class="stat-number">{{ executive_summary.critical_count }}</div></div>
+      <div class="card"><div class="stat-label high">High</div><div class="stat-number">{{ executive_summary.high_count }}</div></div>
+      <div class="card"><div class="stat-label medium">Medium</div><div class="stat-number">{{ executive_summary.medium_count }}</div></div>
+      <div class="card"><div class="stat-label low">Low</div><div class="stat-number">{{ executive_summary.low_count }}</div></div>
+    </section>
+
+    <section class="grid dashboard">
+      <div class="card donut-wrap">
+        <svg class="donut" width="220" height="220" viewBox="0 0 200 200" role="img" aria-label="Severity donut chart">
+          {% if donut_chart.total == 0 %}
+          <circle cx="100" cy="100" r="80" fill="none" stroke="{{ donut_chart.empty_color }}" stroke-width="30"></circle>
+          <text x="100" y="96" text-anchor="middle">No</text><text x="100" y="116" text-anchor="middle">findings</text>
+          {% else %}
+          {% for segment in donut_chart.segments %}
+          <path d="{{ segment.path }}" fill="{{ segment.color }}"></path>
+          {% endfor %}
+          <text x="100" y="106" text-anchor="middle">{{ donut_chart.total }}</text>
+          {% endif %}
+        </svg>
+        <div class="legend">
+          {% for segment in donut_chart.segments %}
+          <div><span style="background:{{ segment.color }}"></span>{{ segment.name|title }}: {{ segment.count }}</div>
+          {% else %}
+          <div>No findings</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="card">
+        <h3>Top Risk Scores</h3>
+        <div class="risk-bars">
+          {% for f in top_risks %}
+          <div class="risk-bar-row">
+            <span class="risk-label">{{ f.title[:40] }}</span>
+            <div class="risk-track"><div class="risk-fill" style="width: {{ ((f.risk_score.total if f.risk_score else 0) / 5.0 * 100)|int }}%; background: var(--color-{{ f.severity.value }})"></div></div>
+            <span class="risk-score">{{ "%.2f"|format(f.risk_score.total if f.risk_score else 0) }}</span>
+          </div>
+          {% else %}
+          <p>No risk scores available.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    {% if chains %}
+    <h2>Attack Chains</h2>
+    {% for chain in chains %}
+    <div class="card">
+      <h3>{{ chain.label }}</h3>
+      <p>{{ chain.message }}</p>
+      <div class="chain-flow">{{ chain.matched_ttps | join(" -> ") }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <h2>Remediation Roadmap</h2>
+    <table>
+      <thead><tr><th>#</th><th>Finding</th><th>Severity</th><th>Effort</th><th>D3FEND</th><th>Recommendation</th></tr></thead>
+      <tbody>
+      {% for item in remediation_items %}
+      <tr><td>{{ item.priority }}</td><td>{{ item.finding_title }}</td><td><span class="badge {{ item.severity.value }}">{{ item.severity.value|title }}</span></td><td><span class="badge effort">{{ item.effort }}</span></td><td>{{ item.d3fend_ids | join(", ") if item.d3fend_ids else "N/A" }}</td><td>{{ item.recommendation }}</td></tr>
+      {% else %}
+      <tr><td>N/A</td><td>No findings recorded.</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>Affected Assets</h2>
+    {% if target_group_rows %}
+    <table><thead><tr><th>Group</th><th>Hosts</th><th>Critical</th><th>High</th></tr></thead><tbody>
+      {% for group in target_group_rows %}
+      <tr><td>{{ group.name }}</td><td>{{ group.scope | join(", ") }}</td><td>{{ group.findings | selectattr("severity.value", "equalto", "critical") | list | length }}</td><td>{{ group.findings | selectattr("severity.value", "equalto", "high") | list | length }}</td></tr>
+      {% endfor %}
+    </tbody></table>
+    {% endif %}
+    <table><thead><tr><th>Asset</th><th>Finding Count</th></tr></thead><tbody>
+      {% for host, finding_count in affected_asset_rows %}
+      <tr><td>{{ host }}</td><td>{{ finding_count }}</td></tr>
+      {% else %}
+      <tr><td>N/A</td><td>0</td></tr>
+      {% endfor %}
+    </tbody></table>
+
+    <h2>Top 5 Risks</h2>
+    {% for finding in top_risks %}
+    <div class="card">
+      <h3>{{ finding.title }}</h3>
+      <p><span class="badge {{ finding.severity.value }}">{{ finding.severity.value|title }}</span> Risk: {{ "%.2f"|format(finding.risk_score.total if finding.risk_score else 0) }}</p>
+      <p>MITRE: {{ finding.mitre_matches | map(attribute="technique_id") | join(", ") if finding.mitre_matches else "N/A" }}</p>
+      <p>{{ finding.evidence[:240] }}</p>
+    </div>
+    {% else %}
+    <p>No findings recorded.</p>
+    {% endfor %}
+
+    <h2 class="page-break">Full Findings</h2>
+    {% for f in findings %}
+    <details class="finding-card severity-{{ f.severity.value }}">
+      <summary class="finding-summary">
+        <span class="badge {{ f.severity.value }}">{{ f.severity.value }}</span>
+        <span class="finding-title">{{ f.title }}</span>
+        <span class="risk-score">Risk: {{ "%.2f"|format(f.risk_score.total if f.risk_score else 0) }}</span>
+      </summary>
+      <div class="finding-body">
+        <h4>Evidence</h4>
+        <pre>{% if redact %}{{ redacted(f.evidence) }}{% else %}{{ f.evidence[:500] }}{% endif %}</pre>
+        <h4>MITRE ATT&amp;CK</h4>
+        <p>{{ f.mitre_matches | map(attribute="technique_id") | join(", ") if f.mitre_matches else "N/A" }}</p>
+        <h4>Suggested Next Steps</h4>
+        <ul>{% for step in f.next_steps %}<li>{{ step }}</li>{% else %}<li>Validate the finding and document remediation with the asset owner.</li>{% endfor %}</ul>
+      </div>
+    </details>
+    {% else %}
+    <p>No findings recorded.</p>
+    {% endfor %}
+
+    <h2>D3FEND Recommendations</h2>
+    {% if with_defenses %}
+    <table><thead><tr><th>Finding</th><th>Technique</th><th>D3FEND ID</th><th>Description</th><th>Priority</th></tr></thead><tbody>
+      {% for finding in findings %}
+      {% for defense in defense_rows[finding.hash] %}
+      <tr><td>{{ finding.title }}</td><td>{{ defense.technique_id }}</td><td>{{ defense.defend_id }}</td><td>{{ defense.description }}</td><td>{{ finding.severity.value|title }}</td></tr>
+      {% else %}
+      <tr><td>{{ finding.title }}</td><td>N/A</td><td>N/A</td><td>Validate remediation with the asset owner.</td><td>{{ finding.severity.value|title }}</td></tr>
+      {% endfor %}
+      {% endfor %}
+    </tbody></table>
+    {% else %}
+    <p>Run with <code>--with-defenses</code> to include D3FEND countermeasure mappings.</p>
+    {% endif %}
+
+    <h2>MITRE ATT&amp;CK Coverage</h2>
+    {% for bar in tactic_bars %}
+    <div class="coverage-row">
+      <span>{{ bar.tactic }}</span>
+      <div class="coverage-track"><div class="coverage-fill" style="width:{{ bar.percent }}%"></div></div>
+      <span>{{ bar.count }} TTPs</span>
+    </div>
+    {% else %}
+    <p>No MITRE techniques mapped.</p>
+    {% endfor %}
+
+    <h2>Evidence Appendix</h2>
+    {% for finding in findings %}
+    <h3>{{ finding.title }}</h3>
+    <pre>{% if redact %}{{ redacted(finding.evidence) }}{% else %}{{ finding.evidence }}{% endif %}</pre>
+    {% else %}
+    <p>No evidence recorded.</p>
+    {% endfor %}
+  </main>
+
+  <script>
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }
+  if (localStorage.getItem('theme') === 'dark' ||
+      (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+  </script>
+</body>
+</html>

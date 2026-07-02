@@ -1,0 +1,21 @@
+=== Seatbelt v1.2.0 ===
+=== OSInfo ===
+OSVersion      : Microsoft Windows Server 2019
+Architecture   : AMD64
+
+=== WindowsDefender ===
+AMRunningMode               : Not running
+DisableRealtimeMonitoring   : True
+
+=== UACPolicies ===
+EnableLUA                   : 0
+
+=== CredGuard ===
+IsRunning                   : False
+
+=== LAPSSettings ===
+No AdmPwd.dll found
+
+=== AutoLogon ===
+DefaultUserName             : north\robb.stark
+DefaultPassword             : WinterIsComing123!

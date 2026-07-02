@@ -1,0 +1,69 @@
+---
+tags: {{ tags }}
+severity: {{ host.severity.value }}
+host: {{ host.ip }}
+hostname: {{ host.hostname or "" }}
+engagement: {{ engagement_name }}
+date: {{ iso_timestamp }}
+tool: {{ tool_name }}
+---
+
+# {{ host.hostname or host.ip }}
+
+## Target Info
+| Field | Value |
+| --- | --- |
+| IP | {{ host.ip }} |
+| Hostname | {{ host.hostname or "N/A" }} |
+| OS | {{ host.os or "N/A" }} |
+| Tags | {{ mitre_tags }} |
+
+{% if host.av_products %}
+## Security Products
+| Product | Status |
+| --- | --- |
+{% for product in host.av_products -%}
+| {{ product }} | Detected |
+{% endfor %}
+
+{% endif %}
+## Open Ports
+| Port | Protocol | Service | Version | State |
+| --- | --- | --- | --- | --- |
+{% for port in host.ports -%}
+| {{ port.number }} | {{ port.protocol }} | {{ port.service }} | {{ port.version or "N/A" }} | {{ port.state }} |
+{% else -%}
+| N/A | N/A | N/A | N/A | N/A |
+{% endfor %}
+
+## MITRE ATT&CK Mapping
+| TTP | Name | Tactic | Source | Confidence |
+| --- | ---- | ------ | ------ | ---------- |
+{% for match in host.mitre_matches -%}
+| {{ match.technique_id }} | {{ match.technique_name }} | {{ match.tactic }} | {{ match.source }} | {{ "%.0f%%" | format(match.confidence * 100) }} |
+{% else -%}
+| N/A | N/A | N/A | N/A | N/A |
+{% endfor %}
+
+## Severity
+**Score:** {{ host.severity.value | title }}
+**Reason:** {{ severity_reason }}
+
+## Suggested Next Steps
+{% for step in host.next_steps -%}
+- [ ] {{ step }}
+{% else -%}
+- [ ] No automated next steps available
+{% endfor %}
+
+## D3FEND Countermeasures
+| Technique | D3FEND ID | Description |
+| --------- | --------- | ----------- |
+{% for defense in host.defenses -%}
+| {{ defense.technique_id|md_cell }} | {{ defense.defend_id|md_cell }} | {{ defense.description|md_cell }} |
+{% else -%}
+| N/A | N/A | N/A |
+{% endfor %}
+
+## Notes
+<!-- analyst notes here -->

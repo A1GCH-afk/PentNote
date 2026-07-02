@@ -1,0 +1,31 @@
+---
+tags: [domain-object, {{ domain_object.object_type }}]
+engagement: {{ engagement_name }}
+date: {{ iso_timestamp }}
+tool: {{ tool_name }}
+---
+
+# {{ domain_object.name }}
+
+## Details
+| Field | Value |
+| --- | --- |
+| Type | {{ domain_object.object_type }} |
+| Domain | {{ domain_object.domain }} |
+
+## Paths
+| Source | Relationship | Target |
+| --- | --- | --- |
+{% for path in domain_object.paths -%}
+| [[{{ path.source|md_cell }}]] | {{ path.relationship|md_cell }} | [[{{ path.target|md_cell }}]] |
+{% else -%}
+| N/A | N/A | N/A |
+{% endfor %}
+
+## Properties
+```json
+{{ properties_json }}
+```
+
+## Notes
+<!-- analyst notes here -->
