@@ -26,6 +26,20 @@ class NmapParser(AbstractParser):
     aliases = ("nmap-xml",)
     supported_extensions = (".xml",)
 
+    def clean(self, content: str, *, truncate_lines: bool = True) -> str:
+        """Normalize input without corrupting long XML lines.
+
+        Nmap XML can legitimately contain single lines over 2000 characters
+        (e.g. a base64-encoded certificate in an ssl-cert script's <elem>).
+        Truncating one mid-tag leaves the document malformed from that byte
+        on, and lxml's recover=True cascades tag-mismatch errors through
+        everything after it, silently dropping every later port. Skip the
+        length truncation whenever the content looks like XML.
+        """
+
+        del truncate_lines
+        return super().clean(content, truncate_lines=not self._looks_like_xml(content))
+
     def can_parse(self, content: str) -> float:
         """Score whether content is Nmap output.
 
