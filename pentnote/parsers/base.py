@@ -21,15 +21,19 @@ class AbstractParser(ABC):
     aliases: tuple[str, ...] = ()
     supported_extensions: tuple[str, ...] = ()
 
-    def clean(self, content: str) -> str:
+    def clean(self, content: str, *, truncate_lines: bool = True) -> str:
         """Normalize parser input and remove terminal/binary noise.
 
         Args:
             content: Raw tool output.
+            truncate_lines: Whether to hard-truncate lines over 2000 chars.
+                Subclasses that parse structured formats (e.g. XML) where a
+                single legitimate line can exceed this length should pass
+                False to avoid corrupting the document mid-tag.
 
         Returns:
             Cleaned tool output with ANSI escapes removed, normalized newlines,
-            long lines truncated, and null bytes stripped.
+            long lines truncated (unless disabled), and null bytes stripped.
         """
 
         ansi = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-9;]*[ -/]*[@-~])")
@@ -38,7 +42,7 @@ class AbstractParser(ABC):
         cleaned = cleaned.replace("\x00", "")
         lines = []
         for line in cleaned.splitlines():
-            if len(line) > 2000:
+            if truncate_lines and len(line) > 2000:
                 lines.append(line[:2000] + " [truncated]")
             else:
                 lines.append(line)

@@ -146,6 +146,39 @@ def test_nmap_handles_truncated_xml() -> None:
     assert result.hosts[0].ip == "10.129.48.183"
 
 
+def test_nmap_does_not_truncate_long_script_lines() -> None:
+    """A long <script> elem line (e.g. a base64 cert) must not be truncated.
+
+    Truncating it mid-tag corrupts the XML from that byte on; lxml's
+    recover=True then cascades tag-mismatch errors through the rest of the
+    document, silently dropping every port that comes after it.
+    """
+
+    content = (FIXTURES / "nmap_long_script_line.xml").read_text()
+
+    result = NmapParser().safe_parse(content)
+
+    assert result.partial is False
+    assert result.hosts[0].ports[0].number != 0
+    port_numbers = sorted(port.number for port in result.hosts[0].ports)
+    assert port_numbers == [53, 389, 445, 3268]
+
+
+def test_nmap_low_confidence_port_mid_list_does_not_drop_later_ports() -> None:
+    """A low-confidence, unversioned <service> (conf=3, method=table) in the
+    middle of the port list must not prevent later ports from parsing."""
+
+    content = (FIXTURES / "nmap_long_script_line.xml").read_text()
+
+    result = NmapParser().parse(content)
+
+    port_445 = next(p for p in result.hosts[0].ports if p.number == 445)
+    assert port_445.service == "microsoft-ds"
+    assert port_445.version is None
+    port_3268 = next(p for p in result.hosts[0].ports if p.number == 3268)
+    assert port_3268.service == "ldap"
+
+
 def test_os_from_osmatch() -> None:
     host = _nmap_host("""
         <nmaprun>
