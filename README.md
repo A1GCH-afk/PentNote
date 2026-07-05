@@ -83,7 +83,13 @@ files directly (see [Extending PentNote](#extending-pentnote)).
 PentNote requires **Python 3.11 or newer**.
 
 ```bash
-pip install pentnote                 # core: CLI, parsers, MITRE, reports
+git clone https://github.com/A1GCH-afk/PentNote.git
+cd PentNote
+pip install . --break-system-packages              # core: CLI, parsers, MITRE, reports
+pip install ".[operator]" --break-system-packages   # + Ghost Log, Ollama, screenshots/OCR,
+                                                     #   graph/Canvas export, Git sync, file watching
+cd PentNote
+pip install . --break-system-packages                # core: CLI, parsers, MITRE, reports
 pip install "pentnote[operator]"     # + Ghost Log, Ollama, screenshots/OCR,
                                       #   graph/Canvas export, Git sync, file watching
 ```
