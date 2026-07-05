@@ -88,10 +88,7 @@ cd PentNote
 pip install . --break-system-packages              # core: CLI, parsers, MITRE, reports
 pip install ".[operator]" --break-system-packages   # + Ghost Log, Ollama, screenshots/OCR,
                                                      #   graph/Canvas export, Git sync, file watching
-cd PentNote
-pip install . --break-system-packages                # core: CLI, parsers, MITRE, reports
-pip install "pentnote[operator]"     # + Ghost Log, Ollama, screenshots/OCR,
-                                      #   graph/Canvas export, Git sync, file watching
+
 ```
 
 Development install:
