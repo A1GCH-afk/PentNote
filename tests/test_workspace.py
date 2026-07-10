@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from pentnote.cli import main
 from pentnote.core.cracking import import_hashcat_potfile
@@ -47,7 +50,53 @@ def test_workspace_store_atomic_write(tmp_path: Path) -> None:
     store.save({"credentials": [], "notes": [], "loot": [], "log": []})
 
     assert store.path.exists()
-    assert not store.path.with_suffix(".json.tmp").exists()
+    assert list(store.path.parent.glob("*.tmp")) == []
+
+
+def test_workspace_store_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.save({"credentials": [_credential()], "notes": [], "loot": [], "log": []})
+    original = store.path.read_text(encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        store.save({"credentials": [], "notes": [], "loot": [], "log": []})
+
+    assert store.path.read_text(encoding="utf-8") == original
+    assert list(store.path.parent.glob("*.tmp")) == []
+
+
+def test_workspace_store_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    store.save({"credentials": [], "notes": [], "loot": [], "log": []})
+
+    assert seen["tmp_parent"] == store.path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_workspace_store_write_keeps_restrictive_permissions(tmp_path: Path) -> None:
+    store = _init_workspace(tmp_path)
+    store.save({"credentials": [], "notes": [], "loot": [], "log": []})
+    store.save({"credentials": [_credential()], "notes": [], "loot": [], "log": []})
+
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
 
 
 def test_add_credential_deduplication(tmp_path: Path) -> None:
