@@ -140,12 +140,17 @@ def remove_loot(loot_id: str | None, remove_last: bool, assume_yes: bool) -> Non
 
 
 @loot.command()
+@click.option("--host")
+@click.option("--type", "loot_type")
 @click.option("--user")
-def summary(user: str | None) -> None:
+def summary(host: str | None, loot_type: str | None, user: str | None) -> None:
     """Show loot summary."""
 
     _, store = active_workspace()
-    counts = Counter(item.get("type") for item in store.get_loot({"user": user}))
+    counts = Counter(
+        item.get("type")
+        for item in store.get_loot({"host": host, "type": loot_type, "user": user})
+    )
     console.print(
         Panel(
             "\n".join(

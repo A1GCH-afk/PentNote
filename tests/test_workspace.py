@@ -836,6 +836,33 @@ def test_loot_summary_filter_by_user(tmp_path: Path, monkeypatch) -> None:
     assert "Hashes collected: 1" in result.output
 
 
+def test_loot_summary_filter_by_host(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "f1", "--host", "10.0.0.1")
+    _add_loot(runner, "--type", "flag", "--value", "f2", "--host", "10.0.0.2")
+
+    result = runner.invoke(main, ["loot", "summary", "--host", "10.0.0.1"])
+
+    assert result.exit_code == 0, result.output
+    assert "Flags captured:   1" in result.output
+
+
+def test_loot_summary_filter_by_type(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "f1", "--host", "h")
+    _add_loot(runner, "--type", "hash", "--value", "hh", "--host", "h", "--user", "svc")
+
+    result = runner.invoke(main, ["loot", "summary", "--type", "flag"])
+
+    assert result.exit_code == 0, result.output
+    assert "Flags captured:   1" in result.output
+    assert "Hashes collected: 0" in result.output
+
+
 def test_record_unsupported_tool_creates_host_note(tmp_path: Path) -> None:
     notes = tmp_path / "notes"
 
