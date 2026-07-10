@@ -563,6 +563,122 @@ def test_import_hashcat_potfile_updates_workspace_and_note(tmp_path: Path) -> No
     assert "Credential cracked" in (tmp_path / "notes" / "TIMELINE.md").read_text()
 
 
+def test_credential_note_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    note = tmp_path / "notes" / "credentials" / "corp-administrator.md"
+    note.parent.mkdir(parents=True)
+    original = (
+        "---\ntags: [credential, ntlm]\n---\n\n"
+        "# Credential - Administrator\n\n"
+        "## Details\n"
+        "| Field | Value |\n"
+        "| --- | --- |\n"
+        "| Cracked | ✗ |\n\n"
+        "## Notes\n"
+    )
+    note.write_text(original, encoding="utf-8")
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    assert note.read_text(encoding="utf-8") == original
+    assert list(note.parent.glob("*.tmp")) == []
+
+
+def test_credential_note_stub_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+    note_dir = tmp_path / "notes" / "credentials" / "ntlm"
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    assert not (note_dir / "administrator.md").exists()
+    assert list(note_dir.glob("*.tmp")) == []
+
+
+def test_credential_note_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen.setdefault("tmp_parents", []).append(Path(src).parent)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    expected = tmp_path / "notes" / "credentials" / "ntlm"
+    assert expected in seen["tmp_parents"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_credential_note_write_preserves_permissions(tmp_path: Path) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    note = tmp_path / "notes" / "credentials" / "corp-administrator.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\ntags: [credential, ntlm]\n---\n\n"
+        "# Credential - Administrator\n\n"
+        "## Details\n"
+        "| Field | Value |\n"
+        "| --- | --- |\n"
+        "| Cracked | ✗ |\n\n"
+        "## Notes\n",
+        encoding="utf-8",
+    )
+    os.chmod(note, 0o640)
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+
+    import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    assert stat.S_IMODE(note.stat().st_mode) == 0o640
+
+
 def test_creds_sync_pot_cli(tmp_path: Path, monkeypatch) -> None:
     store = _init_workspace(tmp_path)
     store.add_credential(_credential())

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from pentnote.core.engagement import Engagement, merge_and_save_findings
+from pentnote.core.fileio import atomic_write_text
 from pentnote.models import Finding, Severity
 from pentnote.workspace.store import (
     WorkspaceStore,
@@ -211,10 +212,9 @@ def _update_credential_note(
     path = _credential_note_path(notes_dir, credential)
     if path is None:
         path = _default_credential_note_path(notes_dir, credential)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        atomic_write_text(
+            path,
             f"# Credential - {credential.get('username', 'unknown')}\n\n" "## Notes\n",
-            encoding="utf-8",
         )
 
     text = path.read_text(encoding="utf-8")
@@ -244,7 +244,7 @@ def _update_credential_note(
             f"| Cracked | ✅ |\n| Cracked Value | {plaintext} |",
             1,
         )
-    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    atomic_write_text(path, text.rstrip() + "\n")
 
 
 def _credential_note_path(notes_dir: Path, credential: dict[str, Any]) -> Path | None:
