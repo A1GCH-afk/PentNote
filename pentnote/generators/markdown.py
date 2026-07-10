@@ -33,6 +33,7 @@ from pentnote.models import (
     ParsedResult,
     Port,
     TargetGroup,
+    WorkspaceLoot,
 )
 from pentnote.models.finding import Severity
 
@@ -183,6 +184,25 @@ def render_domain_object_markdown(
     )
 
 
+def render_loot_markdown(
+    loot: WorkspaceLoot,
+    *,
+    engagement_name: str,
+    tool_name: str,
+    iso_timestamp: str | None = None,
+) -> str:
+    """Render a loot/artifact object to Markdown."""
+
+    template = template_env().get_template("loot.md.j2")
+    return template.render(
+        loot=loot,
+        tags=_format_tags(["loot", loot.type, *loot.tags]),
+        engagement_name=engagement_name,
+        tool_name=tool_name,
+        iso_timestamp=iso_timestamp or _now_iso(),
+    )
+
+
 def write_result_markdown(
     result: ParsedResult,
     output_dir: Path,
@@ -234,6 +254,19 @@ def write_result_markdown(
         path.write_text(
             render_domain_object_markdown(
                 domain_object,
+                engagement_name=engagement_name,
+                tool_name=result.tool,
+            ),
+            encoding="utf-8",
+        )
+        written.append(path)
+
+    for loot_item in result.loot:
+        path = _loot_path(loot_item, output_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            render_loot_markdown(
+                loot_item,
                 engagement_name=engagement_name,
                 tool_name=result.tool,
             ),
@@ -350,6 +383,22 @@ def _domain_path(
     return notes_dir / "domain" / folder / f"{slugify(obj.name)}.md"
 
 
+def _loot_path(
+    loot: WorkspaceLoot,
+    notes_dir: Path,
+) -> Path:
+    """Return the hierarchical note path for a loot/artifact record."""
+
+    folder = slugify(loot.type) or "other"
+    basis = Path(loot.path).name if loot.path else (loot.value or loot.type)
+    slug = slugify(basis or "loot")
+    loot_dir = notes_dir / "loot" / folder
+    path = loot_dir / f"{slug}.md"
+    if path.exists() and _read_frontmatter_value(path, "host") != loot.host:
+        path = loot_dir / f"{slugify(loot.host)}-{slug}.md"
+    return path
+
+
 def write_tool_index(
     tool: str,
     host: str,
@@ -403,13 +452,18 @@ def write_tool_index(
 
 
 def _read_frontmatter_hash(path: Path) -> str | None:
+    return _read_frontmatter_value(path, "hash")
+
+
+def _read_frontmatter_value(path: Path, key: str) -> str | None:
     if not path.exists():
         return None
+    prefix = f"{key}:"
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     for index, line in enumerate(lines):
         if index > 0 and line == "---":
             break
-        if line.startswith("hash:"):
+        if line.startswith(prefix):
             return line.split(":", 1)[1].strip()
     return None
 

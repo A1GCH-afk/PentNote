@@ -381,6 +381,12 @@ def credential_from_model(credential: Any, source_tool: str) -> dict[str, Any]:
     return _credential_defaults({**data, "source_tool": source_tool})
 
 
+def loot_from_model(loot: Any) -> dict[str, Any]:
+    data = loot.model_dump(mode="json") if hasattr(loot, "model_dump") else dict(loot)
+    data["date"] = data.get("date") or now_iso()
+    return data
+
+
 def _credential_defaults(cred: dict[str, Any]) -> dict[str, Any]:
     username = str(cred.get("username") or "")
     domain = cred.get("domain")

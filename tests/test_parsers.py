@@ -384,6 +384,66 @@ def test_cme_handles_binary_garbage() -> None:
     assert isinstance(result.findings, list)
 
 
+def test_cme_saved_to_artifact_line_becomes_loot_instead_of_being_dropped() -> None:
+    """An nxc '... saved to: <path>' line must be recorded as loot, not dropped.
+
+    Root cause: these lines parse cleanly under the CME line grammar but were
+    neither a credential, a finding, nor a host field, so the generated
+    artifact path (here a --generate-krb5-file output) fell through every
+    branch and was silently discarded. The trailing "export KRB5_CONFIG"
+    guidance line is benign follow-up, so the parse stays non-partial with
+    zero findings — the only new record is the loot entry.
+    """
+
+    content = (FIXTURES / "cme_krb5_artifact.txt").read_text()
+
+    result = CrackMapExecParser().parse(content)
+
+    assert len(result.loot) == 1
+    loot = result.loot[0]
+    assert loot.type == "file"
+    assert loot.path == "./krb5.conf"
+    assert loot.host == "10.10.11.174"
+    assert "krb5" in loot.notes.casefold()
+    # No credential was tested, so findings stays 0 and the parse is complete.
+    assert result.findings == []
+    assert result.partial is False
+
+
+def test_cme_credential_validation_unchanged_by_artifact_handling() -> None:
+    """The credential path must keep working after artifact/loot handling was added."""
+
+    result = CrackMapExecParser().parse(
+        "SMB  192.168.56.10  445  DC01  [+] LAB\\alice:Password123! (Pwn3d!)"
+    )
+
+    assert len(result.credentials) == 1
+    assert result.credentials[0].username == "alice"
+    assert [f.title for f in result.findings] == ["Administrative access confirmed"]
+    assert result.loot == []
+
+
+def test_cme_uncategorized_success_line_is_surfaced_not_silently_dropped() -> None:
+    """A '[+]' success line we can't classify must leave a visible trace.
+
+    Previously any grammar-matched line that produced no record inflated the
+    parsed count, so the parse looked complete (partial=False) even though
+    actionable output was thrown away. Such lines now mark the parse partial
+    and are collected into a single INFO finding naming the exact lines.
+    """
+
+    result = CrackMapExecParser().parse(
+        "SMB  10.10.10.5  445  DC01  [+] Enumerated 3 shares with WRITE access"
+    )
+
+    assert result.partial is True
+    assert len(result.findings) == 1
+    finding = result.findings[0]
+    assert finding.title == "Unrecognized crackmapexec output"
+    assert finding.severity is Severity.INFO
+    assert "WRITE access" in finding.evidence
+
+
 def test_secretsdump_parser_contract_and_partial_recovery() -> None:
     content = (FIXTURES / "impacket_sample.txt").read_text()
     parser = SecretsDumpParser()
