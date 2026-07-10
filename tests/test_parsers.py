@@ -502,6 +502,38 @@ def test_safe_parse_never_raises() -> None:
     assert result.findings[0].title == "Parser error: broken"
 
 
+def test_score_parsers_surfaces_detection_errors(monkeypatch, capsys) -> None:
+    """A parser raising in can_parse must warn, not silently score 0.
+
+    Regression guard: the detector used to swallow can_parse exceptions, making
+    a broken parser indistinguishable from one that simply does not match.
+    """
+
+    from pentnote.parsers import detector
+
+    class DetectionBoomParser(AbstractParser):
+        tool_name = "detection-boom"
+
+        def can_parse(self, content: str) -> float:
+            raise ValueError("kaboom")
+
+        def parse(self, content: str) -> ParsedResult:
+            raise NotImplementedError
+
+    monkeypatch.setattr(
+        detector,
+        "available_parsers",
+        lambda include_plugins=True: [DetectionBoomParser()],
+    )
+
+    scores = detector.score_parsers("some tool output")
+    captured = capsys.readouterr()
+
+    assert scores[0].score == 0.0  # broken parser cannot win detection
+    assert "detection-boom" in captured.err  # but the failure is surfaced
+    assert "kaboom" in captured.err
+
+
 def test_clean_removes_ansi_codes() -> None:
     cleaned = UniversalParser().clean("\x1b[31mRed text\x1b[0m\nNormal")
 
