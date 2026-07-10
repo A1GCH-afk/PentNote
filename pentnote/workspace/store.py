@@ -16,6 +16,7 @@ from uuid import uuid4
 import click
 
 from pentnote.core.engagement import Engagement, EngagementError, load_engagement
+from pentnote.core.fileio import atomic_write_text
 from pentnote.core.models import WorkspaceState, normalize_secret_type_value
 
 EMPTY_WORKSPACE: dict[str, Any] = {
@@ -276,11 +277,9 @@ def append_to_note_path(path: Path, content: str) -> None:
     addition = f"- {now_iso()} - {content}\n"
     if "## Notes" in text:
         before, after = text.split("## Notes", 1)
-        path.write_text(
-            f"{before}## Notes{after.rstrip()}\n{addition}", encoding="utf-8"
-        )
+        atomic_write_text(path, f"{before}## Notes{after.rstrip()}\n{addition}")
     else:
-        path.write_text(f"{text.rstrip()}\n\n## Notes\n{addition}", encoding="utf-8")
+        atomic_write_text(path, f"{text.rstrip()}\n\n## Notes\n{addition}")
 
 
 UNSUPPORTED_TOOLS_HEADING = "## Unparsed / Unsupported Tools"
@@ -304,10 +303,9 @@ def record_unsupported_tool(
     if path.exists():
         text = path.read_text(encoding="utf-8")
         entries = [*unsupported_tool_entries(text), entry]
-        path.write_text(_set_unsupported_section(text, entries), encoding="utf-8")
+        atomic_write_text(path, _set_unsupported_section(text, entries))
     else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_minimal_host_note(host, [entry]), encoding="utf-8")
+        atomic_write_text(path, _minimal_host_note(host, [entry]))
     return path
 
 
@@ -436,7 +434,7 @@ def write_loot_markdown(notes_dir: Path, loot: list[dict[str, Any]]) -> Path:
                 notes=item.get("notes") or "",
             )
         )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + "\n")
     return path
 
 
