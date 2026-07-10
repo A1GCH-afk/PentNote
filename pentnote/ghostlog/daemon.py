@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from pentnote.ai.ollama import OllamaError
 from pentnote.core.engagement import Engagement, load_local_config
+from pentnote.core.fileio import atomic_write_json
 from pentnote.core.models import GhostLogSession
 from pentnote.ghostlog.apply import apply_extraction
 from pentnote.ghostlog.llm import GhostLogExtraction, extract_findings
@@ -199,7 +200,7 @@ def start_daemon(engagement: Engagement) -> Path:
 
     started_at = _now()
     state_path = _state_path(engagement)
-    _atomic_write_json(
+    atomic_write_json(
         state_path,
         {
             "running": True,
@@ -229,7 +230,7 @@ def stop_daemon(engagement: Engagement) -> Path:
     state["running"] = False
     state["stopped_at"] = _timestamp()
     path = _state_path(engagement)
-    _atomic_write_json(path, state)
+    atomic_write_json(path, state)
     session = _load_session(engagement)
     if session is not None:
         _save_session(engagement, _stop_session(session))
@@ -536,7 +537,7 @@ def _load_session(engagement: Engagement) -> GhostLogSession | None:
 
 
 def _save_session(engagement: Engagement, session: GhostLogSession) -> None:
-    _atomic_write_json(_session_path(engagement), session.model_dump(mode="json"))
+    atomic_write_json(_session_path(engagement), session.model_dump(mode="json"))
 
 
 def _increment_session(
@@ -590,13 +591,6 @@ def _stop_session(session: GhostLogSession) -> GhostLogSession:
     session.findings_found = 0
     session.log_entries_found = 0
     return session
-
-
-def _atomic_write_json(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
 
 
 def _timestamp() -> str:
