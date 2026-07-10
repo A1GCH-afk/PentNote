@@ -6,6 +6,7 @@ hostname: {{ host.hostname or "" }}
 engagement: {{ engagement_name }}
 date: {{ iso_timestamp }}
 tool: {{ tool_name }}
+tools: {{ tools }}
 ---
 
 # {{ host.hostname or host.ip }}
@@ -15,6 +16,9 @@ tool: {{ tool_name }}
 | --- | --- |
 | IP | {{ host.ip }} |
 | Hostname | {{ host.hostname or "N/A" }} |
+{% if host.hostname_aliases -%}
+| Also Known As | {{ host.hostname_aliases|join(", ") }} |
+{% endif -%}
 | OS | {{ host.os or "N/A" }} |
 | Tags | {{ mitre_tags }} |
 

@@ -131,6 +131,122 @@ def test_write_result_markdown_merges_existing_host_ports(tmp_path: Path) -> Non
     assert "manual analyst note" in note
 
 
+def test_write_result_markdown_cross_tool_write_does_not_clobber_prior_tool_data(
+    tmp_path: Path,
+) -> None:
+    """A second tool writing the same host note must not overwrite the first tool's data.
+
+    Root cause: `_merge_existing_host_note` used to rebuild the host's `Host`
+    object from scratch, forwarding only `ports`. Every other field --
+    `hostname`, `av_products`, and the frontmatter `tool` -- came solely from
+    whichever tool ran most recently, silently discarding the previous tool's
+    contribution instead of merging it. This reproduces that exact scenario:
+    nmap discovers a host under a DNS alias with open ports, then crackmapexec
+    resolves its real AD hostname and AV product on the same IP.
+    """
+
+    nmap_result = NmapParser().parse((FIXTURES / "nmap_sample.xml").read_text())
+    ip = nmap_result.hosts[0].ip
+    original_hostname = nmap_result.hosts[0].hostname
+    assert original_hostname is not None
+
+    write_result_markdown(nmap_result, tmp_path, engagement_name="Client_2026")
+    note_path = tmp_path / "hosts" / f"{ip.replace('.', '-')}.md"
+
+    cme_result = ParsedResult(
+        tool="crackmapexec",
+        partial=False,
+        hosts=[
+            Host(
+                ip=ip,
+                hostname="DC01",
+                os="Windows Server 2019 x64",
+                ports=[],
+                tags=[],
+                av_products=["Windows Defender"],
+            )
+        ],
+        credentials=[],
+        findings=[],
+        domain_objects=[],
+        raw_text="",
+    )
+    write_result_markdown(cme_result, tmp_path, engagement_name="Client_2026")
+
+    note = note_path.read_text()
+
+    # Both tools are tracked in frontmatter history, not just the last writer.
+    assert "tools: [nmap, crackmapexec]" in note
+    assert "tool: crackmapexec" in note
+
+    # nmap's Open Ports table survives the crackmapexec write untouched.
+    assert "| 22 | tcp | ssh | OpenSSH 9.2p1 Debian 2+deb12u7 | open |" in note
+    assert "| 80 | tcp | http | Apache httpd 2.4.66 | open |" in note
+
+    # crackmapexec's AD-resolved hostname wins, but nmap's alias is preserved.
+    assert "hostname: DC01" in note
+    assert f"| Also Known As | {original_hostname} |" in note
+
+    # crackmapexec's Security Products contribution is present.
+    assert "| Windows Defender | Detected |" in note
+
+
+def test_write_result_markdown_same_tool_rerun_refreshes_its_own_hostname(
+    tmp_path: Path,
+) -> None:
+    """A tool re-running must be able to correct its own previously-reported hostname.
+
+    The hostname-priority rule exists to stop a *different* tool's generic
+    alias from clobbering an already-resolved AD hostname. It must not also
+    freeze a tool's own value in place: nmap resolving a corrected PTR record
+    on a rescan should update the primary hostname, not get permanently
+    demoted to an alias behind its own stale first guess.
+    """
+
+    ip = "10.6.6.6"
+    first = ParsedResult(
+        tool="nmap",
+        partial=False,
+        hosts=[
+            Host(
+                ip=ip,
+                hostname="stale.htb",
+                os=None,
+                ports=[Port(22, "tcp", "ssh", None, "open")],
+                tags=[],
+            )
+        ],
+        credentials=[],
+        findings=[],
+        domain_objects=[],
+        raw_text="",
+    )
+    second = ParsedResult(
+        tool="nmap",
+        partial=False,
+        hosts=[
+            Host(
+                ip=ip,
+                hostname="corrected.htb",
+                os=None,
+                ports=[Port(22, "tcp", "ssh", None, "open")],
+                tags=[],
+            )
+        ],
+        credentials=[],
+        findings=[],
+        domain_objects=[],
+        raw_text="",
+    )
+
+    write_result_markdown(first, tmp_path, engagement_name="Client_2026")
+    write_result_markdown(second, tmp_path, engagement_name="Client_2026")
+
+    note = (tmp_path / "hosts" / f"{ip.replace('.', '-')}.md").read_text()
+    assert "hostname: corrected.htb" in note
+    assert "| Also Known As | stale.htb |" in note
+
+
 def test_write_result_markdown_writes_credentials_findings_and_domain(
     tmp_path: Path,
 ) -> None:
