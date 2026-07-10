@@ -858,6 +858,27 @@ def test_doctor_fix_backs_up_corrupt_findings() -> None:
         assert list(Path(".pentnote").glob("findings.json.corrupt.*"))
 
 
+def test_doctor_fix_findings_reset_leaves_no_leftover_temp_on_write_failure(
+    monkeypatch,
+) -> None:
+    runner = CliRunner()
+
+    with runner.isolated_filesystem():
+        runner.invoke(main, ["init", "Client_2026"])
+        findings = Path(".pentnote/findings.json")
+        findings.write_text("{not-json", encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise OSError("simulated crash mid-write")
+
+        monkeypatch.setattr("pentnote.cli.atomic_write_json", boom)
+
+        result = runner.invoke(main, ["status", "--health", "--fix"])
+
+        assert result.exit_code != 0
+        assert list(Path(".pentnote").glob("*.tmp")) == []
+
+
 def test_doctor_fix_skips_low_by_default() -> None:
     runner = CliRunner()
 
