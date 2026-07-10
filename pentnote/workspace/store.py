@@ -16,7 +16,7 @@ from uuid import uuid4
 import click
 
 from pentnote.core.engagement import Engagement, EngagementError, load_engagement
-from pentnote.core.fileio import atomic_write_text
+from pentnote.core.fileio import atomic_write_json, atomic_write_text
 from pentnote.core.models import WorkspaceState, normalize_secret_type_value
 
 EMPTY_WORKSPACE: dict[str, Any] = {
@@ -74,10 +74,7 @@ class WorkspaceStore:
         return WorkspaceState.model_validate(merged).model_dump(mode="json")
 
     def save(self, data: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.path.with_suffix(".json.tmp")
-        tmp_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        tmp_path.replace(self.path)
+        atomic_write_json(self.path, data)
         if os.name != "nt":
             os.chmod(self.path, 0o600)
 
