@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -127,14 +128,14 @@ def test_host_note_write_survives_interrupted_rename(
     note = tmp_path / "hosts" / "10-0-0-5.md"
     original = note.read_text()
 
-    real_replace = Path.replace
+    real_replace = os.replace
 
-    def boom_replace(self: Path, target) -> Path:
-        if Path(target).name == "10-0-0-5.md":
+    def boom_replace(src, dst):
+        if Path(dst).name == "10-0-0-5.md":
             raise OSError("crash during rename")
-        return real_replace(self, target)
+        return real_replace(src, dst)
 
-    monkeypatch.setattr(Path, "replace", boom_replace)
+    monkeypatch.setattr(os, "replace", boom_replace)
 
     with pytest.raises(OSError):
         write_result_markdown(
