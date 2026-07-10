@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from pentnote.cli import main
 from pentnote.core.engagement import (
@@ -12,6 +15,8 @@ from pentnote.core.engagement import (
     load_findings,
     maybe_load_engagement,
     merge_and_save_findings,
+    save_engagement_config,
+    save_findings,
 )
 from pentnote.core.models import EngagementType, Finding, Severity, TargetGroup
 from pentnote.generators.markdown import _assign_target_group, write_result_markdown
@@ -40,6 +45,109 @@ def test_engagement_creation_discovery_and_persistence(tmp_path: Path) -> None:
     assert new_again == []
     assert len(duplicates_again) == len(result.findings)
     assert load_findings(engagement)
+
+
+def test_save_engagement_config_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    original = engagement.config_path.read_text(encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        save_engagement_config(engagement)
+
+    assert engagement.config_path.read_text(encoding="utf-8") == original
+    assert list(engagement.config_path.parent.glob("*.tmp")) == []
+
+
+def test_save_engagement_config_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    save_engagement_config(engagement)
+
+    assert seen["tmp_parent"] == engagement.config_path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_save_engagement_config_write_preserves_permissions(tmp_path: Path) -> None:
+    engagement = init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    os.chmod(engagement.config_path, 0o640)
+
+    save_engagement_config(engagement)
+
+    assert stat.S_IMODE(engagement.config_path.stat().st_mode) == 0o640
+
+
+def test_save_findings_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    save_findings(
+        engagement,
+        [
+            Finding(
+                title="Existing",
+                severity=Severity.LOW,
+                evidence="e",
+                hash="existing-hash",
+            )
+        ],
+    )
+    original = engagement.findings_path.read_text(encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        save_findings(engagement, [])
+
+    assert engagement.findings_path.read_text(encoding="utf-8") == original
+    assert list(engagement.findings_path.parent.glob("*.tmp")) == []
+
+
+def test_save_findings_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    save_findings(engagement, [])
+
+    assert seen["tmp_parent"] == engagement.findings_path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_save_findings_write_preserves_permissions(tmp_path: Path) -> None:
+    engagement = init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    os.chmod(engagement.findings_path, 0o640)
+
+    save_findings(engagement, [])
+
+    assert stat.S_IMODE(engagement.findings_path.stat().st_mode) == 0o640
 
 
 def test_init_writes_opsec_gitignore_and_local_template(tmp_path: Path) -> None:
