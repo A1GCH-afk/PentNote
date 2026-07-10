@@ -406,6 +406,78 @@ def test_run_evilwinrm_uses_specific_parser_and_folder(monkeypatch) -> None:
         assert not Path("notes/findings/universal").exists()
 
 
+def test_run_writes_command_header_to_raw_file(monkeypatch) -> None:
+    runner = CliRunner()
+    commands: list[list[str]] = []
+    _mock_popen(monkeypatch, "found /admin (Status: 200)\n", commands)
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(main, ["run", "gobuster", "-u", "http://t/", "dir"])
+
+        assert result.exit_code == 0, result.output
+        raw = list(Path("raw/gobuster").glob("*.txt"))[0].read_text()
+        assert raw.startswith("# Command: gobuster -u http://t/ dir")
+        assert "found /admin (Status: 200)" in raw
+
+
+def test_run_non_interactive_raw_preserves_ansi(monkeypatch) -> None:
+    runner = CliRunner()
+    commands: list[list[str]] = []
+    # A TTY-adaptive tool's colour codes must survive byte-for-byte after the
+    # header line -- only interactive shells get stripped.
+    _mock_popen(monkeypatch, "\x1b[32m/admin\x1b[0m (Status: 200)\n", commands)
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(main, ["run", "gobuster", "-u", "http://t/", "dir"])
+
+        assert result.exit_code == 0, result.output
+        raw = list(Path("raw/gobuster").glob("*.txt"))[0].read_text()
+        assert "\x1b[32m" in raw
+
+
+def test_run_evilwinrm_strips_ansi_from_raw_file(monkeypatch) -> None:
+    runner = CliRunner()
+    commands: list[list[str]] = []
+    _mock_popen(
+        monkeypatch,
+        (FIXTURES / "evilwinrm_ansi_capture.txt").read_text(),
+        commands,
+    )
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            main,
+            ["run", "evil-winrm", "-i", "10.0.0.1", "-u", "svc_health$"],
+        )
+
+        assert result.exit_code == 0, result.output
+        raw = list(Path("raw/evil-winrm").glob("*.txt"))[0].read_text()
+        assert raw.startswith("# Command: evil-winrm -i 10.0.0.1 -u")
+        assert "\x1b" not in raw
+        assert "\x01" not in raw
+        assert "net user svc_health" in raw
+        # The tab-completion redraw collapses to a single readable command line.
+        assert "> whoami" in raw
+
+
+def test_run_unknown_tool_records_in_host_note(monkeypatch) -> None:
+    runner = CliRunner()
+    commands: list[list[str]] = []
+    _mock_popen(monkeypatch, "hydra v9 starting\n", commands)
+
+    with runner.isolated_filesystem():
+        init_result = runner.invoke(main, ["init", "Client", "--scope", "10.0.0.7"])
+        assert init_result.exit_code == 0, init_result.output
+
+        result = runner.invoke(main, ["run", "hydra", "-l", "admin", "10.0.0.7", "ssh"])
+
+        assert result.exit_code == 0, result.output
+        note = Path("notes/hosts/10-0-0-7.md").read_text()
+        assert "## Unparsed / Unsupported Tools" in note
+        assert "hydra" in note
+        assert "hydra -l admin 10.0.0.7 ssh" in note
+
+
 def test_run_unknown_tool_uses_universal(monkeypatch) -> None:
     runner = CliRunner()
     commands: list[list[str]] = []

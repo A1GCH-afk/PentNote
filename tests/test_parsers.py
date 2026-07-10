@@ -657,6 +657,50 @@ def test_evilwinrm_creates_domain_objects() -> None:
     assert ("group", "Domain Admins") in objects
 
 
+def _domain_object(result: ParsedResult, object_type: str, name: str) -> object:
+    for obj in result.domain_objects:
+        if obj.object_type == object_type and obj.name.casefold() == name.casefold():
+            return obj
+    raise AssertionError(f"no {object_type} object named {name!r}")
+
+
+def test_evilwinrm_net_user_populates_user_note_properties() -> None:
+    content = (FIXTURES / "evilwinrm_netuser_netgroup.txt").read_text()
+
+    result = EvilWinRMParser().parse(content)
+    admin = _domain_object(result, "user", "Administrator")
+
+    assert admin.properties["Account active"] == "Yes"
+    assert admin.properties["Password last set"] == "4/16/2026 7:41:53 AM"
+    assert admin.properties["Local Group Memberships"] == ["Administrators"]
+    # '*'-prefixed memberships, including the wrapped continuation lines.
+    assert "Domain Admins" in admin.properties["Global Group memberships"]
+    assert "Enterprise Admins" in admin.properties["Global Group memberships"]
+
+
+def test_evilwinrm_net_group_populates_group_note_members() -> None:
+    content = (FIXTURES / "evilwinrm_netuser_netgroup.txt").read_text()
+
+    result = EvilWinRMParser().parse(content)
+    group = _domain_object(result, "group", "Domain Admins")
+
+    assert group.properties["Comment"] == "Designated administrators of the domain"
+    assert group.properties["Members"] == ["Administrator", "svc_recovery"]
+
+
+def test_evilwinrm_net_user_note_survives_whoami_sid_header() -> None:
+    # The whoami /all "User Name  SID" header must not be parsed as a net user.
+    content = (FIXTURES / "evilwinrm_sample.txt").read_text()
+
+    result = EvilWinRMParser().parse(content)
+    user_names = {obj.name.casefold() for obj in result.domain_objects}
+
+    assert "sid" not in user_names
+    arya = _domain_object(result, "user", "arya.stark")
+    assert arya.properties["Account active"] == "Yes"
+    assert arya.properties["Global Group memberships"] == ["Domain Users", "Stark"]
+
+
 def test_detector_picks_highest_confidence_parser() -> None:
     assert (
         detect_parser((FIXTURES / "nmap_sample.xml").read_text()).parser.tool_name

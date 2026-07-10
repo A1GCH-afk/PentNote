@@ -106,6 +106,16 @@ class WorkspaceStore:
         data["loot"].append({**loot, "id": loot.get("id") or str(uuid4())})
         self.save(data)
 
+    def delete_loot(self, loot_id: str) -> dict[str, Any] | None:
+        data = self.load()
+        for index, item in enumerate(data["loot"]):
+            if item.get("id") != loot_id:
+                continue
+            deleted = data["loot"].pop(index)
+            self.save(data)
+            return deleted
+        return None
+
     def add_log(self, entry: dict[str, Any]) -> None:
         data = self.load()
         data["log"].append({**entry, "id": entry.get("id") or str(uuid4())})
@@ -175,6 +185,8 @@ class WorkspaceStore:
             loot = [item for item in loot if item.get("host") == value]
         if value := filters.get("type"):
             loot = [item for item in loot if item.get("type") == value]
+        if value := filters.get("user"):
+            loot = [item for item in loot if item.get("user") == value]
         return loot
 
     def get_log(self, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -269,6 +281,100 @@ def append_to_note_path(path: Path, content: str) -> None:
         )
     else:
         path.write_text(f"{text.rstrip()}\n\n## Notes\n{addition}", encoding="utf-8")
+
+
+UNSUPPORTED_TOOLS_HEADING = "## Unparsed / Unsupported Tools"
+
+
+def record_unsupported_tool(
+    notes_dir: Path, host: str, tool: str, command: str = ""
+) -> Path:
+    """Record an unparsed/unsupported tool run in a host note.
+
+    Adds a bullet under an ``## Unparsed / Unsupported Tools`` section so the
+    operator can later see which tool (and invocation) ran against the host
+    even though PentNote has no dedicated parser for it. The host note is
+    created if it does not yet exist.
+    """
+
+    path = host_note_path(notes_dir, host)
+    entry = f"- {now_iso()} - {tool}"
+    if command:
+        entry += f" — `{command}`"
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        entries = [*unsupported_tool_entries(text), entry]
+        path.write_text(_set_unsupported_section(text, entries), encoding="utf-8")
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_minimal_host_note(host, [entry]), encoding="utf-8")
+    return path
+
+
+def unsupported_tool_entries(text: str) -> list[str]:
+    """Return the bullet lines currently under the unsupported-tools heading."""
+
+    if UNSUPPORTED_TOOLS_HEADING not in text:
+        return []
+    body = text.split(UNSUPPORTED_TOOLS_HEADING, 1)[1]
+    entries: list[str] = []
+    for line in body.splitlines():
+        if line.startswith("## "):
+            break
+        if line.strip().startswith("- "):
+            entries.append(line.rstrip())
+    return entries
+
+
+def apply_unsupported_tool_section(rendered: str, existing_note: str | None) -> str:
+    """Carry an existing unsupported-tools section into a regenerated host note."""
+
+    entries = unsupported_tool_entries(existing_note) if existing_note else []
+    if not entries:
+        return rendered
+    return _set_unsupported_section(rendered, entries)
+
+
+def _set_unsupported_section(text: str, entries: list[str]) -> str:
+    """Insert/replace the unsupported-tools section just above ``## Notes``."""
+
+    text = _strip_unsupported_section(text)
+    section = UNSUPPORTED_TOOLS_HEADING + "\n" + "\n".join(entries) + "\n"
+    if "## Notes" in text:
+        before, after = text.split("## Notes", 1)
+        return f"{before.rstrip()}\n\n{section}\n## Notes{after}"
+    return f"{text.rstrip()}\n\n{section}"
+
+
+def _strip_unsupported_section(text: str) -> str:
+    if UNSUPPORTED_TOOLS_HEADING not in text:
+        return text
+    before, rest = text.split(UNSUPPORTED_TOOLS_HEADING, 1)
+    tail = ""
+    remainder_lines = rest.splitlines()
+    for index, line in enumerate(remainder_lines):
+        if line.startswith("## "):
+            tail = "\n".join(remainder_lines[index:])
+            break
+    result = before.rstrip()
+    if tail:
+        result += "\n\n" + tail
+    return result.rstrip() + "\n"
+
+
+def _minimal_host_note(host: str, entries: list[str]) -> str:
+    section = UNSUPPORTED_TOOLS_HEADING + "\n" + "\n".join(entries) + "\n"
+    return (
+        "---\n"
+        "tags: [host]\n"
+        f"host: {host}\n"
+        f"date: {now_iso()}\n"
+        "---\n\n"
+        f"# {host}\n\n"
+        f"{section}\n"
+        "## Notes\n"
+        "<!-- analyst notes here -->\n"
+    )
 
 
 def finding_note_path(notes_dir: Path, target: str) -> Path | None:

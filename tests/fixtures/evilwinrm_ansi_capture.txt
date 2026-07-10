@@ -1,0 +1,16 @@
+                                        
+[0;34mEvil-WinRM shell v3.9[0m
+[0;35mData: For more information, check Evil-WinRM GitHub[0m
+[0;34mInfo: Establishing connection to remote endpoint[0m
+[0;31m*Evil-WinRM*[0m[0;1;33m PS [0mC:\Users\svc_health$\Documents> [?25l[1G[K[0;31m*Evil-WinRM*[0m[0;1;33m PS [0mC:\Users\svc_health$\Documents> [49G[?25l[49G[0mw[0m[?25h[49G[?25l[49G[0mwh[0m[?25h[49G[?25l[49G[0mwho[0m[?25h[49G[?25l[49G[0mwhoa[0m[?25h[49G[?25l[49G[0mwhoam[0m[?25h[49G[?25l[49G[0mwhoami[0m[?25h
+corp\svc_health
+[0;31m*Evil-WinRM*[0m[0;1;33m PS [0mC:\Users\svc_health$\Documents> [0mnet user svc_health
+User name                    svc_health
+Full Name                    Service Health
+Comment                      Managed service account
+Account active               Yes
+Password last set            4/16/2026 7:41:53 AM
+Local Group Memberships      *Remote Management Use
+Global Group memberships     *Domain Users         *Managed Svc Accounts
+The command completed successfully.
+[0;31m*Evil-WinRM*[0m[0;1;33m PS [0mC:\Users\svc_health$\Documents> [0mexit

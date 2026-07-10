@@ -8,7 +8,11 @@ from pentnote.cli import main
 from pentnote.core.cracking import import_hashcat_potfile
 from pentnote.core.engagement import init_engagement, load_engagement
 from pentnote.mitre.next_steps import get_credential_next_steps
-from pentnote.workspace.store import WorkspaceStore, credential_id
+from pentnote.workspace.store import (
+    WorkspaceStore,
+    credential_id,
+    record_unsupported_tool,
+)
 
 
 def _init_workspace(tmp_path: Path) -> WorkspaceStore:
@@ -706,6 +710,158 @@ def test_loot_written_to_loot_md(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert "/etc/passwd" in (tmp_path / "notes" / "LOOT.md").read_text()
+
+
+def _add_loot(runner: CliRunner, *args: str) -> None:
+    runner.invoke(main, ["loot", "add", *args])
+
+
+def _loot_ids(tmp_path: Path) -> list[str]:
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    return [item["id"] for item in data["loot"]]
+
+
+def test_loot_list_displays_short_id(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+
+    result = runner.invoke(main, ["loot", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert _loot_ids(tmp_path)[0][:8] in result.output
+
+
+def test_loot_remove_by_id(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+    short_id = _loot_ids(tmp_path)[0][:8]
+
+    result = runner.invoke(main, ["loot", "remove", short_id, "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "Loot removed" in result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert data["loot"] == []
+
+
+def test_loot_remove_last(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "first", "--host", "10.10.10.10")
+    _add_loot(
+        runner,
+        "--type",
+        "secret",
+        "--value",
+        "second",
+        "--host",
+        "10.10.10.10",
+        "--user",
+        "svc",
+    )
+
+    result = runner.invoke(main, ["loot", "remove", "--last", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert [item["value"] for item in data["loot"]] == ["first"]
+
+
+def test_loot_remove_nonexistent_id_fails(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+
+    result = runner.invoke(main, ["loot", "remove", "nonexistent", "--yes"])
+
+    assert result.exit_code != 0
+    assert "No loot entry" in result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert len(data["loot"]) == 1
+
+
+def test_loot_remove_requires_confirmation(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+    short_id = _loot_ids(tmp_path)[0][:8]
+
+    result = runner.invoke(main, ["loot", "remove", short_id], input="n\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Aborted" in result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert len(data["loot"]) == 1
+
+
+def test_loot_list_filter_by_user(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(
+        runner, "--type", "secret", "--value", "s1", "--host", "h", "--user", "admin"
+    )
+    _add_loot(
+        runner, "--type", "secret", "--value", "s2", "--host", "h", "--user", "guest"
+    )
+
+    result = runner.invoke(main, ["loot", "list", "--user", "admin"])
+
+    assert result.exit_code == 0, result.output
+    assert "s1" in result.output
+    assert "s2" not in result.output
+
+
+def test_loot_summary_filter_by_user(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(
+        runner, "--type", "hash", "--value", "h1", "--host", "h", "--user", "admin"
+    )
+    _add_loot(
+        runner, "--type", "hash", "--value", "h2", "--host", "h", "--user", "guest"
+    )
+
+    result = runner.invoke(main, ["loot", "summary", "--user", "admin"])
+
+    assert result.exit_code == 0, result.output
+    assert "Hashes collected: 1" in result.output
+
+
+def test_record_unsupported_tool_creates_host_note(tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+
+    path = record_unsupported_tool(
+        notes, "10.0.0.9", "hydra", "hydra -l admin 10.0.0.9 ssh"
+    )
+
+    text = path.read_text(encoding="utf-8")
+    assert "## Unparsed / Unsupported Tools" in text
+    assert "hydra" in text
+    assert "hydra -l admin 10.0.0.9 ssh" in text
+    assert text.rstrip().endswith("<!-- analyst notes here -->")
+
+
+def test_record_unsupported_tool_appends_without_duplicating_heading(
+    tmp_path: Path,
+) -> None:
+    notes = tmp_path / "notes"
+    record_unsupported_tool(notes, "10.0.0.9", "hydra", "cmd1")
+
+    path = record_unsupported_tool(notes, "10.0.0.9", "faketime", "cmd2")
+
+    text = path.read_text(encoding="utf-8")
+    assert text.count("## Unparsed / Unsupported Tools") == 1
+    assert "hydra" in text
+    assert "faketime" in text
 
 
 def test_log_add_entry(tmp_path: Path, monkeypatch) -> None:

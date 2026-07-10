@@ -17,6 +17,11 @@ from pentnote.workspace.store import active_workspace, now_iso, write_loot_markd
 
 console = Console()
 
+# Number of leading uuid4 characters shown as an entry's public id. `loot list`
+# displays this prefix and `loot remove <id>` resolves an entry by it, so the
+# operator never has to type a full 36-char uuid.
+SHORT_ID_LEN = 8
+
 ICONS = {
     "flag": "🚩",
     "shell": "💻",
@@ -76,22 +81,24 @@ def add(
 @loot.command("list")
 @click.option("--host")
 @click.option("--type", "loot_type")
-def list_loot(host: str | None, loot_type: str | None) -> None:
+@click.option("--user")
+def list_loot(host: str | None, loot_type: str | None, user: str | None) -> None:
     """Show loot."""
 
     _, store = active_workspace()
-    items = store.get_loot({"host": host, "type": loot_type})
+    items = store.get_loot({"host": host, "type": loot_type, "user": user})
     if not items:
         console.print("No loot found.")
         return
     table = Table(title="Loot")
-    for column in ("#", "Type", "Host", "Value/Path", "User", "Date"):
+    for column in ("#", "ID", "Type", "Host", "Value/Path", "User", "Date"):
         table.add_column(column)
     for index, item in enumerate(items, 1):
         style = _style(item.get("type", ""))
         loot_label = f"{ICONS.get(item.get('type', ''), '')}{item.get('type', '')}"
         table.add_row(
             str(index),
+            _short_id(item),
             f"[{style}]{loot_label}[/{style}]" if style else loot_label,
             item.get("host", ""),
             item.get("value", ""),
@@ -101,12 +108,44 @@ def list_loot(host: str | None, loot_type: str | None) -> None:
     console.print(table)
 
 
+@loot.command("remove")
+@click.argument("loot_id", required=False)
+@click.option(
+    "--last", "remove_last", is_flag=True, help="Remove the most recently added entry."
+)
+@click.option("-y", "--yes", "assume_yes", is_flag=True, help="Skip confirmation.")
+def remove_loot(loot_id: str | None, remove_last: bool, assume_yes: bool) -> None:
+    """Remove a loot entry by ID (or --last)."""
+
+    engagement, store = active_workspace()
+    items = store.get_loot({})
+    if not items:
+        raise click.ClickException("No loot to remove.")
+    if remove_last and loot_id:
+        raise click.ClickException("Give either an <id> or --last, not both.")
+    if remove_last:
+        target = items[-1]
+    elif loot_id:
+        target = _resolve_loot(items, loot_id)
+    else:
+        raise click.ClickException("Give a loot <id> to remove, or use --last.")
+
+    label = _loot_label(target)
+    if not assume_yes and not click.confirm(f"Remove loot: {label}?"):
+        console.print("Aborted.")
+        return
+    store.delete_loot(str(target.get("id", "")))
+    write_loot_markdown(engagement.notes_dir, store.get_loot({}))
+    console.print(f"[✓] Loot removed: {label}")
+
+
 @loot.command()
-def summary() -> None:
+@click.option("--user")
+def summary(user: str | None) -> None:
     """Show loot summary."""
 
     _, store = active_workspace()
-    counts = Counter(item.get("type") for item in store.get_loot({}))
+    counts = Counter(item.get("type") for item in store.get_loot({"user": user}))
     console.print(
         Panel(
             "\n".join(
@@ -163,6 +202,38 @@ def _value_for_loot(
             raise click.ClickException(f"--user is required for loot type {loot_type}")
         return value
     raise click.ClickException(f"Unknown loot type: {loot_type}")
+
+
+def _short_id(item: dict[str, str]) -> str:
+    return str(item.get("id", ""))[:SHORT_ID_LEN]
+
+
+def _resolve_loot(items: list[dict], loot_id: str) -> dict:
+    """Resolve a loot entry from its full id or a unique short-id prefix."""
+
+    matches = [
+        item
+        for item in items
+        if str(item.get("id", "")) == loot_id
+        or str(item.get("id", "")).startswith(loot_id)
+    ]
+    if not matches:
+        raise click.ClickException(f"No loot entry with id {loot_id!r}.")
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Loot id {loot_id!r} is ambiguous ({len(matches)} matches); "
+            "use more characters."
+        )
+    return matches[0]
+
+
+def _loot_label(item: dict) -> str:
+    """Human-readable descriptor for confirmation and result messages."""
+
+    label = f"{item.get('type', '')} on {item.get('host', '')}"
+    if item.get("user"):
+        label += f" (user {item['user']})"
+    return f"{label} [{_short_id(item)}]"
 
 
 def _style(loot_type: str) -> str:
