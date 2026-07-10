@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import tomllib
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from pentnote import __version__
 from pentnote.cli import main
@@ -18,6 +20,7 @@ from pentnote.runner import (
     _make_raw_path,
     _nmap_args_for_raw_xml,
     _run_and_capture,
+    _write_raw_text,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -547,6 +550,99 @@ def test_run_no_universal_still_saves_raw(monkeypatch) -> None:
 
         assert result.exit_code == 0, result.output
         assert list(Path("raw/hydra").glob("*-10.0.0.1.txt"))
+
+
+def test_write_raw_text_writes_header_and_body(tmp_path: Path) -> None:
+    path = tmp_path / "raw" / "hydra" / "capture.txt"
+
+    _write_raw_text(path, "Hydra output\n", ["hydra", "-l", "admin"])
+
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("# Command: hydra -l admin\n")
+    assert "Hydra output" in text
+
+
+def test_write_raw_text_survives_mid_write_failure(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "raw" / "hydra" / "capture.txt"
+    path.parent.mkdir(parents=True)
+    original = "# Command: hydra old\nold output\n"
+    path.write_text(original, encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        _write_raw_text(path, "new output\n", ["hydra", "new"])
+
+    assert path.read_text(encoding="utf-8") == original
+    assert list(path.parent.glob("*.tmp")) == []
+
+
+def test_write_raw_text_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "raw" / "hydra" / "capture.txt"
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    _write_raw_text(path, "output\n", ["hydra"])
+
+    assert seen["tmp_parent"] == path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_write_raw_text_preserves_permissions(tmp_path: Path) -> None:
+    path = tmp_path / "raw" / "hydra" / "capture.txt"
+    path.parent.mkdir(parents=True)
+    path.write_text("old\n", encoding="utf-8")
+    os.chmod(path, 0o640)
+
+    _write_raw_text(path, "new output\n", ["hydra"])
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_run_nmap_xml_fallback_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from pentnote.runner import _run_nmap_and_capture_xml
+
+    raw_path = tmp_path / "raw" / "nmap" / "scan.xml"
+    raw_path.parent.mkdir(parents=True)
+
+    def fake_popen(command, **_kwargs):
+        # Simulate nmap being killed before it writes its own -oX output.
+        return _FakeProcess(["Starting Nmap\n"])
+
+    monkeypatch.setattr("pentnote.runner.subprocess.Popen", fake_popen)
+
+    real_replace = os.replace
+    calls = {"count": 0}
+
+    def fail_second_replace(src, dst):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("simulated crash mid-write")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", fail_second_replace)
+
+    with pytest.raises(OSError):
+        _run_nmap_and_capture_xml("nmap", ["-sV", "10.10.10.10"], raw_path)
+
+    # The .txt companion (written first) succeeded; the .xml fallback (second
+    # write, simulated crash) must leave no trace -- no half-written raw_path,
+    # no leftover temp file.
+    assert not raw_path.exists()
+    assert list(raw_path.parent.glob("*.tmp")) == []
 
 
 def test_run_quiet_suppresses_output(monkeypatch) -> None:

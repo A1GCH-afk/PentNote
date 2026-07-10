@@ -13,6 +13,7 @@ from typing import Any
 
 from pentnote.core.engagement import Engagement
 from pentnote.core.engine import ParseOutcome, parse_content
+from pentnote.core.fileio import atomic_write_text
 from pentnote.core.terminal import strip_interactive_noise
 
 TOOL_CONFIG: dict[str, dict[str, Any]] = {
@@ -423,7 +424,7 @@ def _run_nmap_and_capture_xml(
         else output
     )
     if not raw_path.exists():
-        raw_path.write_text(output, encoding="utf-8", errors="replace")
+        atomic_write_text(raw_path, output, errors="replace")
     return output, returncode, parse_content_value, terminal_path
 
 
@@ -471,7 +472,7 @@ def _write_raw_text(
 
     body = strip_interactive_noise(output) if interactive else output
     header = f"# Command: {shlex.join(command)}\n"
-    path.write_text(header + body, encoding="utf-8", errors="replace")
+    atomic_write_text(path, header + body, errors="replace")
 
 
 def _run_and_capture(command: list[str], *, quiet: bool = False) -> tuple[str, int]:
