@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pentnote.core.fileio import atomic_write_text
 from pentnote.workspace.store import append_to_note_path, host_note_path, now_iso
 
 
@@ -18,8 +19,7 @@ def append_evidence_link(
 
     note_path = host_note_path(notes_dir, target)
     if not note_path.exists():
-        note_path.parent.mkdir(parents=True, exist_ok=True)
-        note_path.write_text(f"# {target}\n\n## Notes\n", encoding="utf-8")
+        atomic_write_text(note_path, f"# {target}\n\n## Notes\n")
     lines = [f"{now_iso()} - ![[{attachment_name}]]"]
     if ocr_text.strip():
         lines.append(f"<!-- OCR: {_clean_comment(ocr_text)} -->")

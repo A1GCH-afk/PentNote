@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pentnote.core.engagement import Engagement
+from pentnote.core.fileio import atomic_write_text
 from pentnote.core.models import DefenseProfile, PayloadContext
 from pentnote.payloads.context import build_contexts
 from pentnote.payloads.lotl import generate_lotl_steps
@@ -27,8 +28,7 @@ def refresh_payloads(
     ):
         note_path = host_note_path(engagement.notes_dir, context.host_ip)
         if not note_path.exists():
-            note_path.parent.mkdir(parents=True, exist_ok=True)
-            note_path.write_text(f"# {context.host_ip}\n\n## Notes\n", encoding="utf-8")
+            atomic_write_text(note_path, f"# {context.host_ip}\n\n## Notes\n")
         section = render_payload_guidance(context, generate_lotl_steps(context))
         _replace_section(note_path, section)
         written.append(note_path)
@@ -83,7 +83,7 @@ def _render_defense_context(defenses: DefenseProfile) -> str:
 def _replace_section(path: Path, section: str) -> None:
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     if SECTION_PREFIX not in text:
-        path.write_text(f"{text.rstrip()}\n\n{section.rstrip()}\n", encoding="utf-8")
+        atomic_write_text(path, f"{text.rstrip()}\n\n{section.rstrip()}\n")
         return
     before, after = text.split(SECTION_PREFIX, 1)
     split_index = _next_outer_section_index(after)
@@ -94,7 +94,7 @@ def _replace_section(path: Path, section: str) -> None:
         )
     else:
         new_text = before.rstrip() + "\n\n" + section.rstrip() + "\n"
-    path.write_text(new_text, encoding="utf-8")
+    atomic_write_text(path, new_text)
 
 
 def _next_outer_section_index(markdown: str) -> int | None:
