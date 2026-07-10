@@ -611,8 +611,10 @@ def _merge_hostname(
 
     if not incoming:
         return existing_hostname, aliases
-    if not existing_hostname or incoming == existing_hostname:
-        return incoming, aliases
+    # Windows host/domain names are case-insensitive, so the same name in a
+    # different case is the same host -- not a new alias to record.
+    if not existing_hostname or incoming.casefold() == existing_hostname.casefold():
+        return incoming, _dedupe_aliases(aliases, primary=incoming)
 
     same_tool_rerun = tool_name == _last_tool_from_note(existing_note)
     if same_tool_rerun or tool_name in _HOSTNAME_AUTHORITATIVE_TOOLS:
@@ -620,9 +622,21 @@ def _merge_hostname(
     else:
         primary, demoted = existing_hostname, incoming
 
-    if demoted not in aliases:
-        aliases = [*aliases, demoted]
-    return primary, aliases
+    return primary, _dedupe_aliases([*aliases, demoted], primary=primary)
+
+
+def _dedupe_aliases(aliases: list[str], *, primary: str) -> list[str]:
+    """Case-insensitively dedupe aliases and drop any equal to the primary."""
+
+    result: list[str] = []
+    seen = {primary.casefold()}
+    for alias in aliases:
+        key = alias.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(alias)
+    return result
 
 
 def _last_tool_from_note(markdown: str) -> str | None:

@@ -265,8 +265,117 @@ def host_note_path(notes_dir: Path, target: str) -> Path:
     return notes_dir / "hosts" / f"{slugify(target)}.md"
 
 
+def resolve_host_note_path(notes_dir: Path, target: str) -> tuple[Path, str | None]:
+    """Map a host identifier to the canonical host note, avoiding duplicates.
+
+    A host is often referred to by different identifiers across tools/commands
+    (an IP, a NetBIOS name, an FQDN, in any case). This returns the existing
+    note that already records ``target`` as one of its identities so writes
+    land on one note instead of fragmenting.
+
+    Merges only on a *confirmed* link -- a case-insensitive exact match against
+    an identity a tool already captured into the note (its ``host:`` IP,
+    ``hostname:``, or recorded aliases). A merely plausible link (e.g. an FQDN
+    whose short label matches an existing note's hostname, or an ambiguous match
+    against several notes) is never auto-merged: it returns the fresh
+    slug-derived path plus a warning so the operator can reconcile manually,
+    because a silent wrong-merge corrupts a deliverable worse than a duplicate.
+
+    Returns ``(path, warning_or_none)``.
+    """
+
+    default_path = host_note_path(notes_dir, target)
+    hosts_dir = notes_dir / "hosts"
+    # A note already keyed by this exact identifier is unambiguously the target.
+    if default_path.exists() or not hosts_dir.exists():
+        return default_path, None
+
+    target_cf = target.strip().casefold()
+    exact: list[Path] = []
+    partial: list[str] = []
+    for note_path in sorted(hosts_dir.glob("*.md")):
+        identity = _host_note_identity(note_path.read_text(encoding="utf-8"))
+        identities = {
+            value.casefold()
+            for value in (identity["ip"], identity["hostname"], *identity["aliases"])
+            if value
+        }
+        if target_cf in identities:
+            exact.append(note_path)
+        elif _shares_first_label(target, identity["hostname"]):
+            partial.append(identity["hostname"])
+
+    if len(exact) == 1:
+        return exact[0], None
+    if len(exact) > 1:
+        names = ", ".join(path.name for path in exact)
+        return default_path, (
+            f"possible duplicate host: {target!r} matches multiple host notes "
+            f"({names}); not auto-merging"
+        )
+    if partial:
+        return default_path, (
+            f"possible duplicate host: {target!r} and {partial[0]!r} may be the "
+            "same target; not auto-merging without a confirmed IP/hostname link"
+        )
+    return default_path, None
+
+
+def _host_note_identity(text: str) -> dict[str, Any]:
+    return {
+        "ip": _frontmatter_scalar(text, "host"),
+        "hostname": _frontmatter_scalar(text, "hostname"),
+        "aliases": _also_known_as(text),
+    }
+
+
+def _frontmatter_scalar(text: str, key: str) -> str:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+    prefix = f"{key}:"
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith(prefix):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def _also_known_as(text: str) -> list[str]:
+    for line in text.splitlines():
+        if line.startswith("| Also Known As |"):
+            cells = line.split("|")
+            if len(cells) >= 3:
+                return [alias.strip() for alias in cells[2].split(",") if alias.strip()]
+    return []
+
+
+def _looks_like_ip(value: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", value.strip()))
+
+
+def _shares_first_label(target: str, hostname: str) -> bool:
+    """True when target and hostname share a first DNS label but differ overall.
+
+    Signals a *possible* (unconfirmed) same-host, e.g. ``DC01.a.local`` vs a
+    note whose hostname is ``DC01`` -- worth warning about, never auto-merging.
+    """
+
+    if not hostname or _looks_like_ip(target):
+        return False
+    target_cf = target.strip().casefold()
+    hostname_cf = hostname.casefold()
+    if target_cf == hostname_cf:
+        return False
+    first = target_cf.split(".")[0]
+    return bool(first) and first == hostname_cf.split(".")[0]
+
+
 def append_to_host_note(notes_dir: Path, target: str, content: str) -> None:
-    path = host_note_path(notes_dir, target)
+    path, warning = resolve_host_note_path(notes_dir, target)
+    if warning:
+        print(f"[!] {warning}", file=sys.stderr)
     if not path.exists():
         return
     append_to_note_path(path, content)
@@ -296,7 +405,9 @@ def record_unsupported_tool(
     created if it does not yet exist.
     """
 
-    path = host_note_path(notes_dir, host)
+    path, warning = resolve_host_note_path(notes_dir, host)
+    if warning:
+        print(f"[!] {warning}", file=sys.stderr)
     entry = f"- {now_iso()} - {tool}"
     if command:
         entry += f" — `{command}`"
