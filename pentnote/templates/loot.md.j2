@@ -1,0 +1,25 @@
+---
+tags: {{ tags }}
+type: {{ loot.type|yaml_scalar }}
+host: {{ loot.host|yaml_scalar }}
+engagement: {{ engagement_name|yaml_scalar }}
+date: {{ iso_timestamp }}
+tool: {{ tool_name|yaml_scalar }}
+---
+
+# Loot — {{ loot.value or loot.path or loot.type }}
+
+## Details
+| Field | Value |
+| --- | --- |
+| Type | {{ loot.type|md_cell }} |
+| Host | {{ loot.host|md_cell }} |
+| Path | {{ (loot.path or "N/A")|md_cell }} |
+| Value | {{ (loot.value or "N/A")|md_cell }} |
+| User | {{ (loot.user or "N/A")|md_cell }} |
+{% if loot.notes %}
+| Notes | {{ loot.notes|md_cell }} |
+{% endif %}
+
+## Notes
+<!-- analyst notes here -->

@@ -32,6 +32,7 @@ from pentnote.models import (
     ParsedResult,
     Port,
     Severity,
+    WorkspaceLoot,
 )
 from pentnote.parsers.v1.crackmapexec import CrackMapExecParser
 from pentnote.parsers.v1.nmap import NmapParser
@@ -265,6 +266,39 @@ def test_write_result_markdown_writes_credentials_findings_and_domain(
     assert any("credentials" in str(path) for path in cme_paths)
     assert any("findings" in str(path) for path in cme_paths)
     assert any("domain" in str(path) for path in domain_paths)
+
+
+def test_write_result_markdown_writes_loot_note_for_parsed_artifact(
+    tmp_path: Path,
+) -> None:
+    """Parser-discovered artifacts must be written to a notes/loot/ note.
+
+    Regression guard for the krb5 silent-drop: a ParsedResult carrying loot
+    now produces a loot note under notes/loot/<type>/<slug>.md recording the
+    artifact path, rather than the path vanishing after parsing.
+    """
+
+    result = ParsedResult(
+        tool="crackmapexec",
+        loot=[
+            WorkspaceLoot(
+                type="file",
+                host="10.10.11.174",
+                value="./krb5.conf",
+                path="./krb5.conf",
+                notes="krb5 conf (crackmapexec)",
+            )
+        ],
+    )
+
+    written = write_result_markdown(result, tmp_path, engagement_name="Client_2026")
+
+    loot_note = tmp_path / "loot" / "file" / "krb5-conf.md"
+    assert loot_note in written
+    body = loot_note.read_text()
+    assert "type: file" in body
+    assert "| Path | ./krb5.conf |" in body
+    assert "host: 10.10.11.174" in body
 
 
 def test_finding_path_uses_tool_subfolder(tmp_path: Path) -> None:

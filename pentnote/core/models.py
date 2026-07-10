@@ -295,6 +295,10 @@ class ParsedResult(PentNoteModel):
     findings: list[Finding] = Field(default_factory=list)
     domain_objects: list[DomainObject] = Field(default_factory=list)
     raw_text: str = ""
+    # `loot` is intentionally the last field: PentNoteModel maps positional
+    # __init__ args by field order, and several parsers construct ParsedResult
+    # positionally ending in raw_text. Keeping loot last preserves that.
+    loot: list[WorkspaceLoot] = Field(default_factory=list)
 
 
 class WorkspaceCredential(PentNoteModel):

@@ -17,7 +17,15 @@ from pyparsing import (
 from pyparsing import Optional as PPOptional
 
 from pentnote.core.deduplicator import finding_hash
-from pentnote.models import Credential, Finding, Host, ParsedResult, Port, Severity
+from pentnote.models import (
+    Credential,
+    Finding,
+    Host,
+    ParsedResult,
+    Port,
+    Severity,
+    WorkspaceLoot,
+)
 from pentnote.parsers.base import AbstractParser
 
 ParserElement.set_default_whitespace_chars(" \t")
@@ -32,6 +40,20 @@ _LINE = (
     + PPOptional(restOfLine("message"), default="")
 )
 AV_ENUM_PATTERN = re.compile(r"\[\*\]\s+(.+?)\s+\((enabled|disabled)\)", re.I)
+
+# nxc emits "<label> saved to: <path>" (and "saved to <path>") whenever a module
+# writes an artifact to disk (--generate-krb5-file, and --sam/--lsa/--ntds dumps).
+# The path is actionable loot; historically these lines were parsed and silently
+# discarded because they are neither a credential, a finding, nor a host field.
+ARTIFACT_SAVED_PATTERN = re.compile(r"saved to:?\s+(?P<path>\S+)", re.I)
+
+# "[+]" success lines that carry no artifact/credential but are benign follow-up
+# guidance nxc prints after a module runs (e.g. how to use a generated krb5 conf).
+# These are recognized-and-ignored, not counted as unrecognized output.
+_BENIGN_SUCCESS_MARKERS = (
+    "run the following command",
+    "export krb5_config",
+)
 
 
 class CrackMapExecParser(AbstractParser):
@@ -64,8 +86,10 @@ class CrackMapExecParser(AbstractParser):
         hosts: dict[str, Host] = {}
         credentials: list[Credential] = []
         findings: list[Finding] = []
+        loot: list[WorkspaceLoot] = []
+        unrecognized: list[tuple[str, str]] = []
         non_empty = 0
-        parsed_count = 0
+        matched_count = 0
 
         for line in clean.splitlines():
             stripped = line.strip()
@@ -75,7 +99,7 @@ class CrackMapExecParser(AbstractParser):
             parsed = self._parse_line(stripped)
             if parsed is None:
                 continue
-            parsed_count += 1
+            matched_count += 1
 
             protocol = parsed["protocol"].casefold()
             host = parsed["host"]
@@ -103,6 +127,8 @@ class CrackMapExecParser(AbstractParser):
                 if enabled:
                     _merge_tag(host_obj, "av-active")
 
+            success_consumed = False
+
             credential = self._credential_from_message(message, host)
             if credential is not None:
                 credentials.append(credential)
@@ -121,6 +147,12 @@ class CrackMapExecParser(AbstractParser):
                         next_steps=["Validate privilege level and reachable hosts."],
                     )
                 )
+                success_consumed = True
+
+            artifact = _artifact_from_message(message, host)
+            if artifact is not None:
+                loot.append(artifact)
+                success_consumed = True
 
             if _smb_signing_disabled(message):
                 findings.append(
@@ -134,13 +166,20 @@ class CrackMapExecParser(AbstractParser):
                     )
                 )
 
+            if _is_unrecognized_success(message, success_consumed):
+                unrecognized.append((host, stripped))
+
+        if unrecognized:
+            findings.append(_unrecognized_finding(self.tool_name, unrecognized))
+
         return ParsedResult(
             tool=self.tool_name,
-            partial=non_empty > parsed_count,
+            partial=non_empty > matched_count or bool(unrecognized),
             hosts=list(hosts.values()),
             credentials=credentials,
             findings=findings,
             domain_objects=[],
+            loot=loot,
             raw_text=content,
         )
 
@@ -186,6 +225,69 @@ def _parse_success(message: str) -> tuple[str | None, str, str] | None:
     else:
         domain, username = None, principal
     return domain, username, secret
+
+
+def _artifact_from_message(message: str, host: str) -> WorkspaceLoot | None:
+    """Capture a generated-artifact path from an nxc '... saved to: <path>' line."""
+
+    match = ARTIFACT_SAVED_PATTERN.search(message)
+    if match is None:
+        return None
+    path = match.group("path").strip().rstrip(".,")
+    if not path:
+        return None
+    label = _artifact_label(message)
+    return WorkspaceLoot(
+        type="file",
+        host=host,
+        value=path,
+        path=path,
+        notes=f"{label} (crackmapexec)".strip(),
+        tags=["crackmapexec", "artifact"],
+    )
+
+
+def _artifact_label(message: str) -> str:
+    """Return the human label preceding 'saved to' (e.g. 'krb5 conf')."""
+
+    lowered = message.casefold()
+    index = lowered.find("saved to")
+    prefix = message[:index] if index != -1 else message
+    prefix = prefix.replace("[+]", "").replace("[*]", "").strip().rstrip(",:;")
+    return prefix or "artifact"
+
+
+def _is_unrecognized_success(message: str, consumed: bool) -> bool:
+    """Flag an nxc success line whose payload was not mapped to any record.
+
+    Only "[+]" success markers are tracked: they mean a module produced an
+    actionable result. If nothing consumed it and it is not benign follow-up
+    guidance, the content would otherwise be silently dropped.
+    """
+
+    if consumed or "[+]" not in message:
+        return False
+    lowered = message.casefold()
+    return not any(marker in lowered for marker in _BENIGN_SUCCESS_MARKERS)
+
+
+def _unrecognized_finding(tool: str, unrecognized: list[tuple[str, str]]) -> Finding:
+    hosts = sorted({host for host, _ in unrecognized})
+    evidence = "\n".join(f"{host}: {line}" for host, line in unrecognized[:20])
+    return Finding(
+        title="Unrecognized crackmapexec output",
+        severity=Severity.INFO,
+        mitre_matches=[],
+        affected_hosts=hosts,
+        evidence=evidence,
+        next_steps=[
+            "Review the raw capture; these nxc success lines were not mapped "
+            "to a host, credential, finding, or loot record."
+        ],
+        defenses=[],
+        chain_member=None,
+        hash=finding_hash(tool, "", "Unrecognized crackmapexec output"),
+    )
 
 
 def _extract_os(message: str) -> str | None:
