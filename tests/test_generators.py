@@ -105,6 +105,62 @@ def test_host_note_regeneration_preserves_unsupported_tools_section(
     assert text.rstrip().endswith("<!-- analyst notes here -->")  # Notes stays last
 
 
+def test_same_tool_rerun_merges_open_ports_by_port_key_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    """Re-running the SAME tool against a host must row-merge the Open Ports table.
+
+    Regression guard for same-tool-rerun row loss/duplication: a second nmap run
+    (e.g. after widening scope) must update a changed row in place keyed by the
+    port's natural key, append genuinely new ports, and never drop the earlier
+    run's ports or emit duplicate rows for a port already listed.
+    """
+
+    first = ParsedResult(
+        tool="nmap",
+        hosts=[
+            Host(
+                ip="10.0.0.5",
+                ports=[
+                    Port(22, "tcp", "ssh", "OpenSSH 8.0", "open"),
+                    Port(80, "tcp", "http", "Apache 2.4.1", "open"),
+                ],
+            )
+        ],
+    )
+    second = ParsedResult(
+        tool="nmap",
+        hosts=[
+            Host(
+                ip="10.0.0.5",
+                ports=[
+                    Port(80, "tcp", "http", "Apache 2.4.62", "open"),  # changed
+                    Port(443, "tcp", "https", "nginx 1.25", "open"),  # new
+                ],
+            )
+        ],
+    )
+
+    write_result_markdown(first, tmp_path, engagement_name="E")
+    write_result_markdown(second, tmp_path, engagement_name="E")
+
+    note = (tmp_path / "hosts" / "10-0-0-5.md").read_text()
+    port_rows = [
+        line
+        for line in note.splitlines()
+        if line.startswith("| ") and line.split("|")[1].strip().isdigit()
+    ]
+
+    # No duplicate rows for a port already present.
+    assert sum(row.split("|")[1].strip() == "80" for row in port_rows) == 1
+    # Earlier run's port retained, new port appended.
+    assert any(row.split("|")[1].strip() == "22" for row in port_rows)
+    assert any(row.split("|")[1].strip() == "443" for row in port_rows)
+    # Changed row updated in place with the newer version.
+    assert "Apache 2.4.62" in note
+    assert "Apache 2.4.1" not in note
+
+
 def test_write_result_markdown_merges_existing_host_ports(tmp_path: Path) -> None:
     smb = ParsedResult(
         tool="crackmapexec",
