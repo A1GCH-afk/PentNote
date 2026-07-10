@@ -9,6 +9,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
+from pentnote.core.fileio import atomic_write_text
 from pentnote.core.models import PentNoteModel
 from pentnote.mitre.chain_detector import apply_chain_membership
 from pentnote.mitre.classifier import (
@@ -238,45 +239,42 @@ def write_result_markdown(
         # A regenerated host note must not drop an unsupported-tools record a
         # prior fallback run appended (the section is not part of the template).
         rendered = apply_unsupported_tool_section(rendered, existing_note)
-        path.write_text(rendered, encoding="utf-8")
+        atomic_write_text(path, rendered)
         written.append(path)
 
     for credential in result.credentials:
         path = _credential_path(credential, output_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        atomic_write_text(
+            path,
             render_credential_markdown(
                 credential,
                 engagement_name=engagement_name,
                 tool_name=result.tool,
             ),
-            encoding="utf-8",
         )
         written.append(path)
 
     for domain_object in result.domain_objects:
         path = _domain_path(domain_object, output_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        atomic_write_text(
+            path,
             render_domain_object_markdown(
                 domain_object,
                 engagement_name=engagement_name,
                 tool_name=result.tool,
             ),
-            encoding="utf-8",
         )
         written.append(path)
 
     for loot_item in result.loot:
         path = _loot_path(loot_item, output_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        atomic_write_text(
+            path,
             render_loot_markdown(
                 loot_item,
                 engagement_name=engagement_name,
                 tool_name=result.tool,
             ),
-            encoding="utf-8",
         )
         written.append(path)
 
@@ -286,16 +284,15 @@ def write_result_markdown(
     for finding in result.findings:
         path = _finding_path(finding, result.tool, output_dir)
         tool_dir = path.parent
-        path.parent.mkdir(parents=True, exist_ok=True)
         primary_host = finding.affected_hosts[0] if finding.affected_hosts else ""
-        path.write_text(
+        atomic_write_text(
+            path,
             render_finding_markdown(
                 finding,
                 engagement_name=engagement_name,
                 tool_name=result.tool,
                 hostname=hostnames.get(primary_host),
             ),
-            encoding="utf-8",
         )
         written.append(path)
         written_findings.append(finding)
@@ -434,7 +431,8 @@ def write_tool_index(
         for finding in findings
     ]
     is_empty = not findings and not hosts and not credentials
-    index_path.write_text(
+    atomic_write_text(
+        index_path,
         template.render(
             tool=tool,
             host=host,
@@ -452,7 +450,6 @@ def write_tool_index(
             low_count=sum(1 for f in findings if f.severity == Severity.LOW),
             info_count=sum(1 for f in findings if f.severity == Severity.INFO),
         ),
-        encoding="utf-8",
     )
     return index_path
 

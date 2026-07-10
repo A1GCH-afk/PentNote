@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from pentnote.generators.index import write_index
 from pentnote.generators.markdown import (
     _credential_path,
@@ -103,6 +104,51 @@ def test_host_note_regeneration_preserves_unsupported_tools_section(
     assert text.count("## Unparsed / Unsupported Tools") == 1  # section preserved once
     assert "hydra" in text
     assert text.rstrip().endswith("<!-- analyst notes here -->")  # Notes stays last
+
+
+def test_host_note_write_survives_interrupted_rename(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An interrupted host-note write must not truncate the existing note.
+
+    Host notes are read-modify-written on every merge; a crash mid-write used
+    to leave a truncated/empty note (silent data loss). The atomic temp+rename
+    path keeps the prior complete note intact if the rename never lands.
+    """
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap",
+            hosts=[Host(ip="10.0.0.5", ports=[Port(22, "tcp", "ssh", "v", "open")])],
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+    note = tmp_path / "hosts" / "10-0-0-5.md"
+    original = note.read_text()
+
+    real_replace = Path.replace
+
+    def boom_replace(self: Path, target) -> Path:
+        if Path(target).name == "10-0-0-5.md":
+            raise OSError("crash during rename")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        write_result_markdown(
+            ParsedResult(
+                tool="nmap",
+                hosts=[
+                    Host(ip="10.0.0.5", ports=[Port(80, "tcp", "http", "v", "open")])
+                ],
+            ),
+            tmp_path,
+            engagement_name="E",
+        )
+
+    assert note.read_text() == original  # prior complete note survived
 
 
 def test_same_tool_rerun_merges_open_ports_by_port_key_without_duplicates(
