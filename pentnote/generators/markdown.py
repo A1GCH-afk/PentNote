@@ -218,6 +218,9 @@ def write_result_markdown(
     _enrich_hosts(result.hosts)
     _attach_related_finding_hashes(result)
 
+    # Local import avoids a workspace<->generators import cycle at module load.
+    from pentnote.workspace.store import apply_unsupported_tool_section
+
     host_dir = output_dir / "hosts"
 
     for host in result.hosts:
@@ -232,6 +235,9 @@ def write_result_markdown(
         )
         if existing_note:
             rendered = _preserve_notes_section(rendered, existing_note)
+        # A regenerated host note must not drop an unsupported-tools record a
+        # prior fallback run appended (the section is not part of the template).
+        rendered = apply_unsupported_tool_section(rendered, existing_note)
         path.write_text(rendered, encoding="utf-8")
         written.append(path)
 

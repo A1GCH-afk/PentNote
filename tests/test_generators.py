@@ -82,6 +82,29 @@ def test_write_result_markdown_writes_host_note(tmp_path: Path) -> None:
     assert written[0].exists()
 
 
+def test_host_note_regeneration_preserves_unsupported_tools_section(
+    tmp_path: Path,
+) -> None:
+    from pentnote.workspace.store import record_unsupported_tool
+
+    host = Host(ip="10.0.0.9", ports=[])
+    write_result_markdown(
+        ParsedResult(tool="nmap", hosts=[host]), tmp_path, engagement_name="E"
+    )
+    record_unsupported_tool(tmp_path, "10.0.0.9", "hydra", "hydra 10.0.0.9")
+
+    # A later supported-tool parse regenerates the note from the template.
+    write_result_markdown(
+        ParsedResult(tool="nmap", hosts=[host]), tmp_path, engagement_name="E"
+    )
+
+    text = (tmp_path / "hosts" / "10-0-0-9.md").read_text(encoding="utf-8")
+    assert "## Open Ports" in text  # full note rendered
+    assert text.count("## Unparsed / Unsupported Tools") == 1  # section preserved once
+    assert "hydra" in text
+    assert text.rstrip().endswith("<!-- analyst notes here -->")  # Notes stays last
+
+
 def test_write_result_markdown_merges_existing_host_ports(tmp_path: Path) -> None:
     smb = ParsedResult(
         tool="crackmapexec",

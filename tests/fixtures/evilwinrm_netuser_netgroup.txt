@@ -1,0 +1,40 @@
+Evil-WinRM shell v3.9
+
+Info: Establishing connection to remote endpoint
+*Evil-WinRM* PS C:\Users\svc_health$\Documents> net user administrator
+User name                    Administrator
+Full Name
+Comment                      Built-in account for administering the computer/domain
+User's comment
+Country/region code          000 (System Default)
+Account active               Yes
+Account expires              Never
+Password last set            4/16/2026 7:41:53 AM
+Password expires             Never
+Password changeable          4/17/2026 7:41:53 AM
+Password required            Yes
+User may change password     Yes
+Workstations allowed         All
+Logon script
+User profile
+Home directory
+Last logon                   7/9/2026 10:37:32 AM
+Logon hours allowed          All
+Local Group Memberships      *Administrators
+Global Group memberships     *Domain Users         *Domain Admins
+                             *Group Policy Creator *Schema Admins
+                             *Protected Users      *Enterprise Admins
+The command completed successfully.
+
+*Evil-WinRM* PS C:\Users\svc_health$\Documents> net group "Domain Admins"
+Group name     Domain Admins
+Comment        Designated administrators of the domain
+
+Members
+
+-------------------------------------------------------------------------------
+Administrator            svc_recovery
+The command completed successfully.
+
+*Evil-WinRM* PS C:\Users\svc_health$\Documents> exit
+Info: Exiting with code 0

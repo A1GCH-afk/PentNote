@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 from contextlib import suppress
@@ -12,6 +13,7 @@ from typing import Any
 
 from pentnote.core.engagement import Engagement
 from pentnote.core.engine import ParseOutcome, parse_content
+from pentnote.core.terminal import strip_interactive_noise
 
 TOOL_CONFIG: dict[str, dict[str, Any]] = {
     "nmap": {
@@ -133,6 +135,10 @@ TOOL_CONFIG: dict[str, dict[str, Any]] = {
         "raw_ext": ".txt",
         "raw_subdir": "evil-winrm",
         "xml_flag": False,
+        # Interactive line-editor shells echo keystrokes back as ANSI redraw
+        # noise; strip it from the persisted raw file. Scoped to this capture
+        # path only -- TTY-adaptive tools (feroxbuster/gobuster) must not.
+        "interactive": True,
     },
     "powerview": {
         "parser": "powerview",
@@ -220,7 +226,12 @@ def run_tool(
     else:
         prepared_args = _prepare_args(normalized_tool, tool_args, config)
         output, returncode = _run_and_capture([tool, *prepared_args], quiet=quiet)
-        raw_path.write_text(output, encoding="utf-8", errors="replace")
+        _write_raw_text(
+            raw_path,
+            output,
+            [tool, *tool_args],
+            interactive=bool(config.get("interactive")),
+        )
         parse_content_value = output
         terminal_path = None
 
@@ -231,6 +242,14 @@ def run_tool(
         tool_name=parser,
         engagement=engagement,
     )
+    if (
+        engagement is not None
+        and parser_override is None
+        and normalized_tool not in TOOL_CONFIG
+    ):
+        _record_unsupported_tool_run(
+            engagement, normalized_tool, tool_args, target, outcome.result.hosts
+        )
     return RunResult(
         tool=normalized_tool,
         raw_path=raw_path,
@@ -261,7 +280,12 @@ def run_raw_only(
     else:
         prepared_args = _prepare_args(normalized_tool, tool_args, config)
         output, returncode = _run_and_capture([tool, *prepared_args], quiet=quiet)
-        raw_path.write_text(output, encoding="utf-8", errors="replace")
+        _write_raw_text(
+            raw_path,
+            output,
+            [tool, *tool_args],
+            interactive=bool(config.get("interactive")),
+        )
         terminal_path = None
     return RawRunResult(
         tool=normalized_tool,
@@ -390,7 +414,9 @@ def _run_nmap_and_capture_xml(
     command = [tool, *_nmap_args_for_raw_xml(tool_args, raw_path)]
     output, returncode = _run_and_capture(command, quiet=quiet)
     terminal_path = raw_path.with_suffix(".txt")
-    terminal_path.write_text(output, encoding="utf-8", errors="replace")
+    # Header goes on the human-readable .txt companion only; the .xml raw file
+    # is re-read for parsing and must stay valid XML.
+    _write_raw_text(terminal_path, output, [tool, *tool_args])
     parse_content_value = (
         raw_path.read_text(encoding="utf-8", errors="replace")
         if raw_path.exists()
@@ -399,6 +425,53 @@ def _run_nmap_and_capture_xml(
     if not raw_path.exists():
         raw_path.write_text(output, encoding="utf-8", errors="replace")
     return output, returncode, parse_content_value, terminal_path
+
+
+def _record_unsupported_tool_run(
+    engagement: Engagement,
+    tool: str,
+    tool_args: list[str],
+    target: str,
+    hosts: list[Any],
+) -> None:
+    """Note an unsupported tool run against its host so it is not lost.
+
+    Prefers the explicit run target; falls back to any host the universal
+    parser recovered from the output. Host-less wrapper tools (no host-like
+    target and no discovered IP) are intentionally skipped -- there is no host
+    note to attach the record to.
+    """
+
+    from pentnote.workspace.store import record_unsupported_tool, target_type
+
+    if target_type(target) == "host":
+        host_ids = [target]
+    else:
+        host_ids = [host.ip for host in hosts if getattr(host, "ip", "")]
+    command = shlex.join([tool, *tool_args])
+    for host in dict.fromkeys(host_ids):
+        record_unsupported_tool(engagement.notes_dir, host, tool, command)
+
+
+def _write_raw_text(
+    path: Path,
+    output: str,
+    command: list[str],
+    *,
+    interactive: bool = False,
+) -> None:
+    """Persist captured tool output to a raw text file.
+
+    Records the exact invocation as a ``# Command:`` header so the file is
+    self-documenting on later review. For interactive-shell captures the
+    ANSI/redraw noise is collapsed first; all other tools are written verbatim
+    to preserve their (possibly TTY-adaptive) output byte-for-byte after the
+    header line.
+    """
+
+    body = strip_interactive_noise(output) if interactive else output
+    header = f"# Command: {shlex.join(command)}\n"
+    path.write_text(header + body, encoding="utf-8", errors="replace")
 
 
 def _run_and_capture(command: list[str], *, quiet: bool = False) -> tuple[str, int]:
