@@ -3,6 +3,43 @@
 All notable changes to PentNote are documented here.
 Format follows Keep a Changelog (keepachangelog.com).
 
+## [1.0.1] - 2026-07-10
+
+### Added
+- `loot remove <id>` / `loot remove --last` to undo a bad `loot add`.
+- `--host`/`--type`/`--user` filters on `loot summary`, matching the filters
+  `loot list` and `loot add` already supported.
+- A host note `## Unparsed / Unsupported Tools` section recording tool runs
+  that have no dedicated parser, so they leave a trace instead of vanishing.
+- `net user`/`net group` output now populates AD domain-object notes (account
+  info, group memberships) instead of only surfacing as finding evidence.
+
+### Changed
+- Interactive-shell raw captures (evil-winrm) strip ANSI redraw/cursor noise
+  before saving; other tools' captures remain byte-identical.
+- Raw `.txt` captures now record their invoking command as a header line.
+- Host notes now merge additively across tool re-runs instead of the most
+  recent tool's write silently discarding fields (hostname, AV products) an
+  earlier tool had already recorded.
+- Host notes referenced by different identifiers (IP, hostname, FQDN, in any
+  case) now resolve to one canonical note instead of fragmenting into
+  duplicates, when the note already has a confirmed link to that identifier.
+- The Markdown report now uses one consistent empty-section marker instead of
+  several different ones across sections.
+
+### Fixed
+- `nxc`/`crackmapexec` `saved to: <path>` lines (`--generate-krb5-file`
+  and the analogous SAM/LSA/NTDS dump paths) were silently discarded instead
+  of being recorded as loot.
+- Parser detection errors were silently scored 0, indistinguishable from a
+  parser that simply didn't match; they now surface a warning.
+- Every PentNote-managed state file (workspace/engagement/ghostlog JSON
+  stores, `local.json`, host and credential notes, the collaboration-mode
+  `.gitignore`, and raw tool-output captures) is now written atomically
+  (temp-file + fsync + rename) instead of via a direct overwrite, so a crash,
+  kill, disk-full, or Ctrl-C mid-write can no longer leave it truncated or
+  corrupted.
+
 ## [1.0.0] - 2026-07-02
 
 ### Added
