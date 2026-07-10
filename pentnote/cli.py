@@ -28,6 +28,7 @@ from pentnote.core.engagement import (
     save_engagement_config,
 )
 from pentnote.core.engine import parse_content
+from pentnote.core.fileio import atomic_write_json
 from pentnote.core.models import EngagementType, TargetGroup, WorkspaceCredential
 from pentnote.generators.index import write_index
 from pentnote.generators.markdown import _assign_target_group
@@ -974,7 +975,7 @@ def _backup_and_reset_json(
         if not dry_run:
             if path.exists():
                 path.replace(backup)
-            _atomic_write_json(path, empty_value)
+            atomic_write_json(path, empty_value)
             if chmod_0600 and os.name != "nt":
                 os.chmod(path, 0o600)
         return f"{message} → {backup.name}"
@@ -1021,15 +1022,8 @@ def _deduplicate_rules_json(dry_run: bool) -> str:
     data = json.loads(rules_path.read_text(encoding="utf-8"))
     deduped = {key: list(dict.fromkeys(values)) for key, values in data.items()}
     if not dry_run:
-        _atomic_write_json(rules_path, deduped)
+        atomic_write_json(rules_path, deduped)
     return "deduplicate TTP IDs in rules.json"
-
-
-def _atomic_write_json(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
 
 
 def _doctor_timestamp() -> int:
