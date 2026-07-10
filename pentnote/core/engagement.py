@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pentnote.core.deduplicator import merge_findings
+from pentnote.core.fileio import atomic_write_json
 from pentnote.core.init_engine import LOCAL_CONFIG_DEFAULTS, initialize_engagement
 from pentnote.core.models import (
     DefenseRow,
@@ -114,10 +115,7 @@ def save_engagement_config(engagement: Engagement) -> None:
         "created_at": engagement.created_at,
         "version": 1,
     }
-    engagement.config_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = engagement.config_path.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(engagement.config_path)
+    atomic_write_json(engagement.config_path, config)
 
 
 def load_local_config(engagement: Engagement) -> dict[str, Any]:
@@ -153,13 +151,9 @@ def load_findings(engagement: Engagement) -> list[Finding]:
 def save_findings(engagement: Engagement, findings: list[Finding]) -> None:
     """Persist findings to engagement state."""
 
-    engagement.findings_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = engagement.findings_path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps([_finding_to_dict(item) for item in findings], indent=2) + "\n",
-        encoding="utf-8",
+    atomic_write_json(
+        engagement.findings_path, [_finding_to_dict(item) for item in findings]
     )
-    tmp_path.replace(engagement.findings_path)
 
 
 def merge_and_save_findings(

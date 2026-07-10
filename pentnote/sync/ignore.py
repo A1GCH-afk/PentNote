@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from pentnote.core.fileio import atomic_write_text
 from pentnote.core.init_engine import GITIGNORE_ENTRIES
 
 IGNORE_ENTRIES = [
@@ -32,7 +33,7 @@ def ensure_gitignore(root: Path) -> Path:
             lines.append("")
         lines.append("# PentNote operator-local state")
         lines.extend(additions)
-        path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        atomic_write_text(path, "\n".join(lines).rstrip() + "\n")
     return path
 
 

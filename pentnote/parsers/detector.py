@@ -88,7 +88,16 @@ def score_parsers(content: str, include_plugins: bool = True) -> list[ParserScor
     for parser in available_parsers(include_plugins=include_plugins):
         try:
             score = parser.can_parse(parser.clean(content))
-        except Exception:
+        except Exception as exc:
+            # A parser raising during detection must not be silently
+            # indistinguishable from one that simply does not match: surface it
+            # on stderr (same channel this module uses for ambiguity warnings)
+            # while still scoring 0 so the broken parser cannot win.
+            click.echo(
+                f"[!] Parser {parser.tool_name!r} errored during detection "
+                f"and was skipped: {exc}",
+                err=True,
+            )
             score = 0.0
         scores.append(ParserScore(parser, score))
     return sorted(scores, key=lambda item: item.score, reverse=True)

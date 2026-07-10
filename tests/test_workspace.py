@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from pentnote.cli import main
 from pentnote.core.cracking import import_hashcat_potfile
 from pentnote.core.engagement import init_engagement, load_engagement
 from pentnote.mitre.next_steps import get_credential_next_steps
-from pentnote.workspace.store import WorkspaceStore, credential_id
+from pentnote.workspace.store import (
+    WorkspaceStore,
+    credential_id,
+    record_unsupported_tool,
+)
 
 
 def _init_workspace(tmp_path: Path) -> WorkspaceStore:
@@ -43,7 +50,53 @@ def test_workspace_store_atomic_write(tmp_path: Path) -> None:
     store.save({"credentials": [], "notes": [], "loot": [], "log": []})
 
     assert store.path.exists()
-    assert not store.path.with_suffix(".json.tmp").exists()
+    assert list(store.path.parent.glob("*.tmp")) == []
+
+
+def test_workspace_store_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.save({"credentials": [_credential()], "notes": [], "loot": [], "log": []})
+    original = store.path.read_text(encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        store.save({"credentials": [], "notes": [], "loot": [], "log": []})
+
+    assert store.path.read_text(encoding="utf-8") == original
+    assert list(store.path.parent.glob("*.tmp")) == []
+
+
+def test_workspace_store_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    store.save({"credentials": [], "notes": [], "loot": [], "log": []})
+
+    assert seen["tmp_parent"] == store.path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_workspace_store_write_keeps_restrictive_permissions(tmp_path: Path) -> None:
+    store = _init_workspace(tmp_path)
+    store.save({"credentials": [], "notes": [], "loot": [], "log": []})
+    store.save({"credentials": [_credential()], "notes": [], "loot": [], "log": []})
+
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
 
 
 def test_add_credential_deduplication(tmp_path: Path) -> None:
@@ -510,6 +563,122 @@ def test_import_hashcat_potfile_updates_workspace_and_note(tmp_path: Path) -> No
     assert "Credential cracked" in (tmp_path / "notes" / "TIMELINE.md").read_text()
 
 
+def test_credential_note_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    note = tmp_path / "notes" / "credentials" / "corp-administrator.md"
+    note.parent.mkdir(parents=True)
+    original = (
+        "---\ntags: [credential, ntlm]\n---\n\n"
+        "# Credential - Administrator\n\n"
+        "## Details\n"
+        "| Field | Value |\n"
+        "| --- | --- |\n"
+        "| Cracked | ✗ |\n\n"
+        "## Notes\n"
+    )
+    note.write_text(original, encoding="utf-8")
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    assert note.read_text(encoding="utf-8") == original
+    assert list(note.parent.glob("*.tmp")) == []
+
+
+def test_credential_note_stub_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+    note_dir = tmp_path / "notes" / "credentials" / "ntlm"
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    assert not (note_dir / "administrator.md").exists()
+    assert list(note_dir.glob("*.tmp")) == []
+
+
+def test_credential_note_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen.setdefault("tmp_parents", []).append(Path(src).parent)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    expected = tmp_path / "notes" / "credentials" / "ntlm"
+    assert expected in seen["tmp_parents"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_credential_note_write_preserves_permissions(tmp_path: Path) -> None:
+    store = _init_workspace(tmp_path)
+    store.add_credential(_credential())
+    note = tmp_path / "notes" / "credentials" / "corp-administrator.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\ntags: [credential, ntlm]\n---\n\n"
+        "# Credential - Administrator\n\n"
+        "## Details\n"
+        "| Field | Value |\n"
+        "| --- | --- |\n"
+        "| Cracked | ✗ |\n\n"
+        "## Notes\n",
+        encoding="utf-8",
+    )
+    os.chmod(note, 0o640)
+    potfile = tmp_path / "hashcat.potfile"
+    potfile.write_text(
+        "aad3b435b51404eeaad3b435b51404ee:P@ssw0rd123\n",
+        encoding="utf-8",
+    )
+    engagement = load_engagement(tmp_path)
+
+    import_hashcat_potfile(str(potfile), engagement=engagement)
+
+    assert stat.S_IMODE(note.stat().st_mode) == 0o640
+
+
 def test_creds_sync_pot_cli(tmp_path: Path, monkeypatch) -> None:
     store = _init_workspace(tmp_path)
     store.add_credential(_credential())
@@ -706,6 +875,185 @@ def test_loot_written_to_loot_md(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert "/etc/passwd" in (tmp_path / "notes" / "LOOT.md").read_text()
+
+
+def _add_loot(runner: CliRunner, *args: str) -> None:
+    runner.invoke(main, ["loot", "add", *args])
+
+
+def _loot_ids(tmp_path: Path) -> list[str]:
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    return [item["id"] for item in data["loot"]]
+
+
+def test_loot_list_displays_short_id(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+
+    result = runner.invoke(main, ["loot", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert _loot_ids(tmp_path)[0][:8] in result.output
+
+
+def test_loot_remove_by_id(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+    short_id = _loot_ids(tmp_path)[0][:8]
+
+    result = runner.invoke(main, ["loot", "remove", short_id, "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "Loot removed" in result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert data["loot"] == []
+
+
+def test_loot_remove_last(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "first", "--host", "10.10.10.10")
+    _add_loot(
+        runner,
+        "--type",
+        "secret",
+        "--value",
+        "second",
+        "--host",
+        "10.10.10.10",
+        "--user",
+        "svc",
+    )
+
+    result = runner.invoke(main, ["loot", "remove", "--last", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert [item["value"] for item in data["loot"]] == ["first"]
+
+
+def test_loot_remove_nonexistent_id_fails(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+
+    result = runner.invoke(main, ["loot", "remove", "nonexistent", "--yes"])
+
+    assert result.exit_code != 0
+    assert "No loot entry" in result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert len(data["loot"]) == 1
+
+
+def test_loot_remove_requires_confirmation(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "HTB{a}", "--host", "10.10.10.10")
+    short_id = _loot_ids(tmp_path)[0][:8]
+
+    result = runner.invoke(main, ["loot", "remove", short_id], input="n\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Aborted" in result.output
+    data = json.loads((tmp_path / ".pentnote" / "workspace.json").read_text())
+    assert len(data["loot"]) == 1
+
+
+def test_loot_list_filter_by_user(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(
+        runner, "--type", "secret", "--value", "s1", "--host", "h", "--user", "admin"
+    )
+    _add_loot(
+        runner, "--type", "secret", "--value", "s2", "--host", "h", "--user", "guest"
+    )
+
+    result = runner.invoke(main, ["loot", "list", "--user", "admin"])
+
+    assert result.exit_code == 0, result.output
+    assert "s1" in result.output
+    assert "s2" not in result.output
+
+
+def test_loot_summary_filter_by_user(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(
+        runner, "--type", "hash", "--value", "h1", "--host", "h", "--user", "admin"
+    )
+    _add_loot(
+        runner, "--type", "hash", "--value", "h2", "--host", "h", "--user", "guest"
+    )
+
+    result = runner.invoke(main, ["loot", "summary", "--user", "admin"])
+
+    assert result.exit_code == 0, result.output
+    assert "Hashes collected: 1" in result.output
+
+
+def test_loot_summary_filter_by_host(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "f1", "--host", "10.0.0.1")
+    _add_loot(runner, "--type", "flag", "--value", "f2", "--host", "10.0.0.2")
+
+    result = runner.invoke(main, ["loot", "summary", "--host", "10.0.0.1"])
+
+    assert result.exit_code == 0, result.output
+    assert "Flags captured:   1" in result.output
+
+
+def test_loot_summary_filter_by_type(tmp_path: Path, monkeypatch) -> None:
+    _init_workspace(tmp_path)
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    _add_loot(runner, "--type", "flag", "--value", "f1", "--host", "h")
+    _add_loot(runner, "--type", "hash", "--value", "hh", "--host", "h", "--user", "svc")
+
+    result = runner.invoke(main, ["loot", "summary", "--type", "flag"])
+
+    assert result.exit_code == 0, result.output
+    assert "Flags captured:   1" in result.output
+    assert "Hashes collected: 0" in result.output
+
+
+def test_record_unsupported_tool_creates_host_note(tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+
+    path = record_unsupported_tool(
+        notes, "10.0.0.9", "hydra", "hydra -l admin 10.0.0.9 ssh"
+    )
+
+    text = path.read_text(encoding="utf-8")
+    assert "## Unparsed / Unsupported Tools" in text
+    assert "hydra" in text
+    assert "hydra -l admin 10.0.0.9 ssh" in text
+    assert text.rstrip().endswith("<!-- analyst notes here -->")
+
+
+def test_record_unsupported_tool_appends_without_duplicating_heading(
+    tmp_path: Path,
+) -> None:
+    notes = tmp_path / "notes"
+    record_unsupported_tool(notes, "10.0.0.9", "hydra", "cmd1")
+
+    path = record_unsupported_tool(notes, "10.0.0.9", "faketime", "cmd2")
+
+    text = path.read_text(encoding="utf-8")
+    assert text.count("## Unparsed / Unsupported Tools") == 1
+    assert "hydra" in text
+    assert "faketime" in text
 
 
 def test_log_add_entry(tmp_path: Path, monkeypatch) -> None:

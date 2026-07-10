@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pentnote.core.fileio import atomic_write_json, atomic_write_text
 from pentnote.core.models import Engagement, EngagementType, TargetGroup
 
 SENSITIVE_PATHS = [
@@ -111,21 +112,20 @@ def initialize_engagement(
         "created_at": created_at,
         "version": 1,
     }
-    _atomic_write_json(config_path, config)
+    atomic_write_json(config_path, config)
 
     local_path = state_dir / "local.json"
     if not local_path.exists():
-        local_path.write_text(
-            json.dumps(LOCAL_CONFIG_DEFAULTS, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        atomic_write_json(local_path, LOCAL_CONFIG_DEFAULTS)
 
+    # Static reference template, never read back by PentNote -- a plain
+    # overwrite is fine since there is no unique content to lose.
     example_path = state_dir / "local.example.jsonc"
     example_path.write_text(LOCAL_EXAMPLE_JSONC, encoding="utf-8")
 
     findings_path = state_dir / "findings.json"
     if not findings_path.exists():
-        findings_path.write_text("[]\n", encoding="utf-8")
+        atomic_write_json(findings_path, [])
 
     _write_gitignore(root)
     return Engagement(
@@ -164,7 +164,7 @@ def ensure_operator_gitignore(root: Path) -> Path:
     if "# PentNote sensitive files" not in normalized:
         lines.append("# PentNote sensitive files")
     lines.extend(additions)
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines).rstrip() + "\n")
     return path
 
 
@@ -182,9 +182,3 @@ def _target_groups_from_config(value: object) -> list[TargetGroup]:
         elif isinstance(item, dict):
             groups.append(TargetGroup.model_validate(item))
     return groups
-
-
-def _atomic_write_json(path: Path, value: object) -> None:
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
