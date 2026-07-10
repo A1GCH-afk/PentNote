@@ -384,6 +384,66 @@ def test_cme_handles_binary_garbage() -> None:
     assert isinstance(result.findings, list)
 
 
+def test_cme_saved_to_artifact_line_becomes_loot_instead_of_being_dropped() -> None:
+    """An nxc '... saved to: <path>' line must be recorded as loot, not dropped.
+
+    Root cause: these lines parse cleanly under the CME line grammar but were
+    neither a credential, a finding, nor a host field, so the generated
+    artifact path (here a --generate-krb5-file output) fell through every
+    branch and was silently discarded. The trailing "export KRB5_CONFIG"
+    guidance line is benign follow-up, so the parse stays non-partial with
+    zero findings — the only new record is the loot entry.
+    """
+
+    content = (FIXTURES / "cme_krb5_artifact.txt").read_text()
+
+    result = CrackMapExecParser().parse(content)
+
+    assert len(result.loot) == 1
+    loot = result.loot[0]
+    assert loot.type == "file"
+    assert loot.path == "./krb5.conf"
+    assert loot.host == "10.10.11.174"
+    assert "krb5" in loot.notes.casefold()
+    # No credential was tested, so findings stays 0 and the parse is complete.
+    assert result.findings == []
+    assert result.partial is False
+
+
+def test_cme_credential_validation_unchanged_by_artifact_handling() -> None:
+    """The credential path must keep working after artifact/loot handling was added."""
+
+    result = CrackMapExecParser().parse(
+        "SMB  192.168.56.10  445  DC01  [+] LAB\\alice:Password123! (Pwn3d!)"
+    )
+
+    assert len(result.credentials) == 1
+    assert result.credentials[0].username == "alice"
+    assert [f.title for f in result.findings] == ["Administrative access confirmed"]
+    assert result.loot == []
+
+
+def test_cme_uncategorized_success_line_is_surfaced_not_silently_dropped() -> None:
+    """A '[+]' success line we can't classify must leave a visible trace.
+
+    Previously any grammar-matched line that produced no record inflated the
+    parsed count, so the parse looked complete (partial=False) even though
+    actionable output was thrown away. Such lines now mark the parse partial
+    and are collected into a single INFO finding naming the exact lines.
+    """
+
+    result = CrackMapExecParser().parse(
+        "SMB  10.10.10.5  445  DC01  [+] Enumerated 3 shares with WRITE access"
+    )
+
+    assert result.partial is True
+    assert len(result.findings) == 1
+    finding = result.findings[0]
+    assert finding.title == "Unrecognized crackmapexec output"
+    assert finding.severity is Severity.INFO
+    assert "WRITE access" in finding.evidence
+
+
 def test_secretsdump_parser_contract_and_partial_recovery() -> None:
     content = (FIXTURES / "impacket_sample.txt").read_text()
     parser = SecretsDumpParser()
@@ -440,6 +500,38 @@ def test_safe_parse_never_raises() -> None:
 
     assert result.partial is True
     assert result.findings[0].title == "Parser error: broken"
+
+
+def test_score_parsers_surfaces_detection_errors(monkeypatch, capsys) -> None:
+    """A parser raising in can_parse must warn, not silently score 0.
+
+    Regression guard: the detector used to swallow can_parse exceptions, making
+    a broken parser indistinguishable from one that simply does not match.
+    """
+
+    from pentnote.parsers import detector
+
+    class DetectionBoomParser(AbstractParser):
+        tool_name = "detection-boom"
+
+        def can_parse(self, content: str) -> float:
+            raise ValueError("kaboom")
+
+        def parse(self, content: str) -> ParsedResult:
+            raise NotImplementedError
+
+    monkeypatch.setattr(
+        detector,
+        "available_parsers",
+        lambda include_plugins=True: [DetectionBoomParser()],
+    )
+
+    scores = detector.score_parsers("some tool output")
+    captured = capsys.readouterr()
+
+    assert scores[0].score == 0.0  # broken parser cannot win detection
+    assert "detection-boom" in captured.err  # but the failure is surfaced
+    assert "kaboom" in captured.err
 
 
 def test_clean_removes_ansi_codes() -> None:
@@ -595,6 +687,50 @@ def test_evilwinrm_creates_domain_objects() -> None:
     assert ("user", "robb.stark") in objects
     assert ("user", "arya.stark") in objects
     assert ("group", "Domain Admins") in objects
+
+
+def _domain_object(result: ParsedResult, object_type: str, name: str) -> object:
+    for obj in result.domain_objects:
+        if obj.object_type == object_type and obj.name.casefold() == name.casefold():
+            return obj
+    raise AssertionError(f"no {object_type} object named {name!r}")
+
+
+def test_evilwinrm_net_user_populates_user_note_properties() -> None:
+    content = (FIXTURES / "evilwinrm_netuser_netgroup.txt").read_text()
+
+    result = EvilWinRMParser().parse(content)
+    admin = _domain_object(result, "user", "Administrator")
+
+    assert admin.properties["Account active"] == "Yes"
+    assert admin.properties["Password last set"] == "4/16/2026 7:41:53 AM"
+    assert admin.properties["Local Group Memberships"] == ["Administrators"]
+    # '*'-prefixed memberships, including the wrapped continuation lines.
+    assert "Domain Admins" in admin.properties["Global Group memberships"]
+    assert "Enterprise Admins" in admin.properties["Global Group memberships"]
+
+
+def test_evilwinrm_net_group_populates_group_note_members() -> None:
+    content = (FIXTURES / "evilwinrm_netuser_netgroup.txt").read_text()
+
+    result = EvilWinRMParser().parse(content)
+    group = _domain_object(result, "group", "Domain Admins")
+
+    assert group.properties["Comment"] == "Designated administrators of the domain"
+    assert group.properties["Members"] == ["Administrator", "svc_recovery"]
+
+
+def test_evilwinrm_net_user_note_survives_whoami_sid_header() -> None:
+    # The whoami /all "User Name  SID" header must not be parsed as a net user.
+    content = (FIXTURES / "evilwinrm_sample.txt").read_text()
+
+    result = EvilWinRMParser().parse(content)
+    user_names = {obj.name.casefold() for obj in result.domain_objects}
+
+    assert "sid" not in user_names
+    arya = _domain_object(result, "user", "arya.stark")
+    assert arya.properties["Account active"] == "Yes"
+    assert arya.properties["Global Group memberships"] == ["Domain Users", "Stark"]
 
 
 def test_detector_picks_highest_confidence_parser() -> None:

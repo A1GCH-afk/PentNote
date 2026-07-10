@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from pentnote.core.deduplicator import finding_hash
 from pentnote.core.models import DomainObject
@@ -21,6 +22,15 @@ DOMAIN_GROUP_TABLE_RE = re.compile(
     r"Group Accounts for.*?-{5,}\n(?P<body>.*?)(?:The command completed|$)",
     flags=re.IGNORECASE | re.DOTALL,
 )
+# `net user <name>` and `net group <name>` detail blocks begin with a left-column
+# field label. The value column starts after 2+ spaces (a group name such as
+# "Domain Admins" keeps its internal single spaces).
+NET_USER_START_RE = re.compile(r"(?i)^User name\s{2,}(?P<name>\S.*?)\s*$")
+NET_GROUP_START_RE = re.compile(r"(?i)^Group name\s{2,}(?P<name>\S.*?)\s*$")
+# Membership values are '*'-prefixed and may wrap onto indented continuation
+# lines; net.exe truncates long names to the fixed column width.
+MEMBERSHIP_FIELDS = {"local group memberships", "global group memberships"}
+NAME_FIELDS = {"user name", "group name"}
 DANGEROUS_PRIVILEGES = {
     "SeBackupPrivilege",
     "SeDebugPrivilege",
@@ -50,8 +60,11 @@ class EvilWinRMParser(AbstractParser):
     def parse(self, content: str) -> ParsedResult:
         clean = _clean_transcript(content)
         host = _target_host(clean)
+        domain = _domain(clean)
         findings: list[Finding] = []
         domain_objects: list[DomainObject] = []
+        detailed_users = _detailed_net_users(clean)
+        detailed_groups = _detailed_net_groups(clean)
 
         if "Info: Establishing connection to remote endpoint" in clean:
             findings.append(
@@ -67,13 +80,16 @@ class EvilWinRMParser(AbstractParser):
             )
 
         users = _domain_users(clean)
+        listed_users = {user.casefold() for user in users}
         if users:
             domain_objects.extend(
                 DomainObject(
                     name=user,
                     object_type="user",
-                    domain=_domain(clean),
-                    properties={"source": self.tool_name},
+                    domain=domain,
+                    properties=_object_properties(
+                        self.tool_name, detailed_users.get(user.casefold())
+                    ),
                     paths=[],
                 )
                 for user in users
@@ -89,15 +105,34 @@ class EvilWinRMParser(AbstractParser):
                     tactic="Discovery",
                 )
             )
+        # A `net user <name>` run without a preceding `net user` listing still
+        # deserves its own populated note.
+        for key, (display_name, props) in detailed_users.items():
+            if key in listed_users:
+                continue
+            domain_objects.append(
+                DomainObject(
+                    name=display_name,
+                    object_type="user",
+                    domain=domain,
+                    properties=_object_properties(
+                        self.tool_name, (display_name, props)
+                    ),
+                    paths=[],
+                )
+            )
 
         groups = _domain_groups(clean)
+        listed_groups = {group.casefold() for group in groups}
         if groups:
             domain_objects.extend(
                 DomainObject(
                     name=group,
                     object_type="group",
-                    domain=_domain(clean),
-                    properties={"source": self.tool_name},
+                    domain=domain,
+                    properties=_object_properties(
+                        self.tool_name, detailed_groups.get(group.casefold())
+                    ),
                     paths=[],
                 )
                 for group in groups
@@ -111,6 +146,20 @@ class EvilWinRMParser(AbstractParser):
                     technique_id="T1069.002",
                     technique_name="Permission Groups Discovery: Domain Groups",
                     tactic="Discovery",
+                )
+            )
+        for key, (display_name, props) in detailed_groups.items():
+            if key in listed_groups:
+                continue
+            domain_objects.append(
+                DomainObject(
+                    name=display_name,
+                    object_type="group",
+                    domain=domain,
+                    properties=_object_properties(
+                        self.tool_name, (display_name, props)
+                    ),
+                    paths=[],
                 )
             )
 
@@ -256,6 +305,163 @@ def _detailed_domain_user(content: str) -> str | None:
         if value.casefold() != "sid":
             return value
     return None
+
+
+def _detailed_net_users(content: str) -> dict[str, tuple[str, dict[str, Any]]]:
+    """Map casefolded username -> (display name, parsed `net user <name>` fields)."""
+
+    result: dict[str, tuple[str, dict[str, Any]]] = {}
+    for name, block in _iter_detail_blocks(content, NET_USER_START_RE):
+        if name.casefold() == "sid":  # whoami /all header, not a net user block
+            continue
+        props = _parse_net_user_props(block)
+        if props:
+            result[name.casefold()] = (name, props)
+    return result
+
+
+def _detailed_net_groups(content: str) -> dict[str, tuple[str, dict[str, Any]]]:
+    """Map casefolded group name -> (display name, parsed `net group <name>` fields)."""
+
+    result: dict[str, tuple[str, dict[str, Any]]] = {}
+    for name, block in _iter_detail_blocks(content, NET_GROUP_START_RE):
+        props = _parse_net_group_props(block)
+        if props:
+            result[name.casefold()] = (name, props)
+    return result
+
+
+def _iter_detail_blocks(
+    content: str, start_re: re.Pattern[str]
+) -> list[tuple[str, list[str]]]:
+    """Yield (name, body-lines) for each detail block opened by ``start_re``.
+
+    A block runs from just after its header line until the trailing ``The
+    command completed`` line, the next detail header, or the next shell prompt.
+    """
+
+    lines = content.splitlines()
+    blocks: list[tuple[str, list[str]]] = []
+    index = 0
+    total = len(lines)
+    while index < total:
+        match = start_re.match(lines[index])
+        if not match:
+            index += 1
+            continue
+        name = match.group("name").strip()
+        body: list[str] = []
+        cursor = index + 1
+        while cursor < total:
+            line = lines[cursor]
+            if _is_block_terminator(line):
+                break
+            body.append(line)
+            cursor += 1
+        blocks.append((name, body))
+        index = cursor
+    return blocks
+
+
+def _is_block_terminator(line: str) -> bool:
+    stripped = line.lstrip()
+    return (
+        stripped.casefold().startswith("the command completed")
+        or stripped.startswith("*Evil-WinRM*")
+        or bool(NET_USER_START_RE.match(line))
+        or bool(NET_GROUP_START_RE.match(line))
+    )
+
+
+def _parse_net_user_props(block: list[str]) -> dict[str, Any]:
+    """Parse ``net user <name>`` field/value lines into note properties."""
+
+    props: dict[str, Any] = {}
+    current: str | None = None
+    for line in block:
+        if not line.strip():
+            continue
+        if line[0].isspace():  # indented continuation of a membership list
+            if current and current.casefold() in MEMBERSHIP_FIELDS:
+                props.setdefault(current, []).extend(_split_star(line))
+            continue
+        field, value = _split_field(line)
+        current = field
+        low = field.casefold()
+        if low in NAME_FIELDS:
+            continue
+        if low in MEMBERSHIP_FIELDS:
+            props.setdefault(field, [])
+            if value:
+                props[field].extend(_split_star(value))
+        elif value:
+            props[field] = value
+    return _finalize_props(props)
+
+
+def _parse_net_group_props(block: list[str]) -> dict[str, Any]:
+    """Parse ``net group <name>`` output (comment plus member roster)."""
+
+    props: dict[str, Any] = {}
+    members: list[str] = []
+    in_members = False
+    for line in block:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if set(stripped) <= {"-"}:  # ----- separator above the member roster
+            continue
+        if stripped.casefold() == "members":
+            in_members = True
+            continue
+        if in_members:
+            members.extend(_split_columns(stripped))
+            continue
+        field, value = _split_field(line)
+        if field.casefold() in NAME_FIELDS:
+            continue
+        if value:
+            props[field] = value
+    unique_members = _unique([member for member in members if member])
+    if unique_members:
+        props["Members"] = unique_members
+    return props
+
+
+def _finalize_props(props: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for field, value in props.items():
+        if isinstance(value, list):
+            deduped = _unique([item for item in value if item])
+            if deduped:
+                result[field] = deduped
+        elif value:
+            result[field] = value
+    return result
+
+
+def _object_properties(
+    tool: str, detail: tuple[str, dict[str, Any]] | None
+) -> dict[str, Any]:
+    props: dict[str, Any] = {"source": tool}
+    if detail:
+        props.update(detail[1])
+    return props
+
+
+def _split_field(line: str) -> tuple[str, str]:
+    parts = re.split(r"\s{2,}", line.strip(), maxsplit=1)
+    field = parts[0].strip()
+    value = parts[1].strip() if len(parts) > 1 else ""
+    return field, value
+
+
+def _split_star(text: str) -> list[str]:
+    return [part.strip() for part in text.split("*") if part.strip()]
+
+
+def _split_columns(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"\s{2,}", text.strip()) if part.strip()]
 
 
 def _line_containing(content: str, needle: str) -> str:

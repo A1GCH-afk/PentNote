@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import stat
 import tomllib
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from pentnote.cli import main
 from pentnote.core.engagement import init_engagement, load_findings, save_findings
@@ -571,6 +574,53 @@ def test_append_evidence_link_includes_ocr_comment(tmp_path: Path) -> None:
     assert "<!-- OCR: flag - value -->" in text
 
 
+def test_append_evidence_link_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    notes_dir = tmp_path / "notes"
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        append_evidence_link(notes_dir, "10.10.10.11", "screenshot.png")
+
+    host_dir = notes_dir / "hosts"
+    assert not (host_dir / "10-10-10-11.md").exists()
+    assert list(host_dir.glob("*.tmp")) == []
+
+
+def test_append_evidence_link_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    notes_dir = tmp_path / "notes"
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    path = append_evidence_link(notes_dir, "10.10.10.12", "screenshot.png")
+
+    assert seen["tmp_parent"] == path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_append_evidence_link_write_preserves_permissions(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    path = append_evidence_link(notes_dir, "10.10.10.13", "screenshot.png")
+    os.chmod(path, 0o640)
+
+    append_evidence_link(notes_dir, "10.10.10.13", "second.png")
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
 def test_payload_refresh_injects_context(tmp_path: Path) -> None:
     engagement = init_engagement(tmp_path, "Operator", [])
     _write_host_note(
@@ -606,6 +656,56 @@ def test_payload_refresh_injects_context(tmp_path: Path) -> None:
     assert "## Payload Guidance — WINTERFELL" in text
     assert "cme smb 10.10.10.10 -u alice -p Password123! --shares" in text
     assert "{context" not in text
+
+
+def test_payload_refresh_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Operator", [])
+    note_path = _write_host_note(
+        tmp_path,
+        "10.10.10.14",
+        os_name="Windows",
+        ports=[445],
+        hostname="WINTERFELL2",
+    )
+    original = note_path.read_text(encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        refresh_payloads(engagement, host="10.10.10.14")
+
+    assert note_path.read_text(encoding="utf-8") == original
+    assert list(note_path.parent.glob("*.tmp")) == []
+
+
+def test_payload_refresh_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Operator", [])
+    note_path = _write_host_note(
+        tmp_path,
+        "10.10.10.15",
+        os_name="Windows",
+        ports=[445],
+        hostname="WINTERFELL3",
+    )
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    refresh_payloads(engagement, host="10.10.10.15")
+
+    assert seen["tmp_parent"] == note_path.parent
 
 
 def test_payload_context_uses_open_ports(tmp_path: Path) -> None:
@@ -1458,6 +1558,57 @@ def test_ghostlog_session_cumulative_increments_on_stop(
     assert session["cumulative_findings"] == 1
 
 
+def test_ghostlog_state_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Operator", [])
+    start_daemon(engagement)
+    state_path = tmp_path / ".pentnote" / "ghostlog-state.json"
+    original = state_path.read_text(encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        stop_daemon(engagement)
+
+    assert state_path.read_text(encoding="utf-8") == original
+    assert list(state_path.parent.glob("*.tmp")) == []
+
+
+def test_ghostlog_session_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Operator", [])
+    session_path = tmp_path / ".pentnote" / "ghostlog_session.json"
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    start_daemon(engagement)
+
+    assert seen["tmp_parent"] == session_path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_ghostlog_session_write_preserves_permissions(tmp_path: Path) -> None:
+    engagement = init_engagement(tmp_path, "Operator", [])
+    start_daemon(engagement)
+    session_path = tmp_path / ".pentnote" / "ghostlog_session.json"
+    os.chmod(session_path, 0o640)
+
+    start_daemon(engagement)
+
+    assert stat.S_IMODE(session_path.stat().st_mode) == 0o640
+
+
 def test_ghostlog_session_history_appended_on_stop(tmp_path: Path, monkeypatch) -> None:
     engagement = init_engagement(tmp_path, "Operator", [])
     start_daemon(engagement)
@@ -1566,6 +1717,38 @@ def test_high_confidence_credential_written_immediately(tmp_path: Path) -> None:
     data = WorkspaceStore(tmp_path).load()
     assert len(data["credentials"]) == 1
     assert data["quality_stats"]["written"] == 1
+
+
+def test_ghostlog_finding_host_note_stub_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engagement = init_engagement(tmp_path, "Operator", [])
+    extraction = GhostLogExtraction.model_validate(
+        {
+            "findings": [
+                {
+                    "title": "Valid SMB credential",
+                    "severity": "high",
+                    "target": "192.168.56.11",
+                    "evidence": "[+] 192.168.56.11:445 LAB\\alice:Password123!",
+                }
+            ],
+        }
+    )
+
+    def boom(*args, **kwargs):
+        raise OSError("simulated crash mid-write")
+
+    # Target only the host-note stub write in apply.py -- merge_and_save_findings
+    # goes through a separate atomic_write_json call and must still succeed.
+    monkeypatch.setattr("pentnote.ghostlog.apply.atomic_write_text", boom)
+
+    with pytest.raises(OSError):
+        apply_extraction(engagement, extraction, source_command="nxc smb")
+
+    host_dir = engagement.notes_dir / "hosts"
+    assert not (host_dir / "192-168-56-11.md").exists()
+    assert list(host_dir.glob("*.tmp")) == []
 
 
 def test_low_confidence_credential_queued_not_written(tmp_path: Path) -> None:

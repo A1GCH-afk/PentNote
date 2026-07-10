@@ -269,8 +269,10 @@ extraction if not using `run` directly.
 
 ### CrackMapExec / NetExec
 
-**Detects:** SMB shares, logged-in sessions, credential validation results
-across a target range.
+**Detects:** host/OS fingerprint, SMB signing status, AV/EDR products,
+credential validation results, and generated artifact paths (e.g.
+`--generate-krb5-file`) across a target range. Success lines that don't map
+to a known category are surfaced as a partial parse rather than dropped.
 
 **Live run (recommended):**
 ```bash

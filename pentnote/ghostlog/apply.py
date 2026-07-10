@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pentnote.core.engagement import Engagement, merge_and_save_findings
+from pentnote.core.fileio import atomic_write_text
 from pentnote.ghostlog.llm import GhostLogExtraction
 from pentnote.models import (
     ExtractionConfidence,
@@ -118,11 +119,7 @@ def apply_extraction(
         if extracted_finding.target:
             path = host_note_path(engagement.notes_dir, extracted_finding.target)
             if not path.exists():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(
-                    f"# {extracted_finding.target}\n\n## Notes\n",
-                    encoding="utf-8",
-                )
+                atomic_write_text(path, f"# {extracted_finding.target}\n\n## Notes\n")
             append_to_host_note(
                 engagement.notes_dir,
                 extracted_finding.target,

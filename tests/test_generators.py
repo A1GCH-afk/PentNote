@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+import pytest
 from pentnote.generators.index import write_index
 from pentnote.generators.markdown import (
     _credential_path,
@@ -32,6 +34,7 @@ from pentnote.models import (
     ParsedResult,
     Port,
     Severity,
+    WorkspaceLoot,
 )
 from pentnote.parsers.v1.crackmapexec import CrackMapExecParser
 from pentnote.parsers.v1.nmap import NmapParser
@@ -79,6 +82,221 @@ def test_write_result_markdown_writes_host_note(tmp_path: Path) -> None:
 
     assert written == [tmp_path / "hosts" / "10-129-48-183.md"]
     assert written[0].exists()
+
+
+def test_host_note_regeneration_preserves_unsupported_tools_section(
+    tmp_path: Path,
+) -> None:
+    from pentnote.workspace.store import record_unsupported_tool
+
+    host = Host(ip="10.0.0.9", ports=[])
+    write_result_markdown(
+        ParsedResult(tool="nmap", hosts=[host]), tmp_path, engagement_name="E"
+    )
+    record_unsupported_tool(tmp_path, "10.0.0.9", "hydra", "hydra 10.0.0.9")
+
+    # A later supported-tool parse regenerates the note from the template.
+    write_result_markdown(
+        ParsedResult(tool="nmap", hosts=[host]), tmp_path, engagement_name="E"
+    )
+
+    text = (tmp_path / "hosts" / "10-0-0-9.md").read_text(encoding="utf-8")
+    assert "## Open Ports" in text  # full note rendered
+    assert text.count("## Unparsed / Unsupported Tools") == 1  # section preserved once
+    assert "hydra" in text
+    assert text.rstrip().endswith("<!-- analyst notes here -->")  # Notes stays last
+
+
+def test_host_note_write_survives_interrupted_rename(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An interrupted host-note write must not truncate the existing note.
+
+    Host notes are read-modify-written on every merge; a crash mid-write used
+    to leave a truncated/empty note (silent data loss). The atomic temp+rename
+    path keeps the prior complete note intact if the rename never lands.
+    """
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap",
+            hosts=[Host(ip="10.0.0.5", ports=[Port(22, "tcp", "ssh", "v", "open")])],
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+    note = tmp_path / "hosts" / "10-0-0-5.md"
+    original = note.read_text()
+
+    real_replace = os.replace
+
+    def boom_replace(src, dst):
+        if Path(dst).name == "10-0-0-5.md":
+            raise OSError("crash during rename")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        write_result_markdown(
+            ParsedResult(
+                tool="nmap",
+                hosts=[
+                    Host(ip="10.0.0.5", ports=[Port(80, "tcp", "http", "v", "open")])
+                ],
+            ),
+            tmp_path,
+            engagement_name="E",
+        )
+
+    assert note.read_text() == original  # prior complete note survived
+
+
+def test_host_note_merge_is_case_insensitive_for_hostname(tmp_path: Path) -> None:
+    """Item 1 (case-insensitive): the same hostname in a different case is the
+    same host, not a superseded name to demote into an alias."""
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+    write_result_markdown(
+        ParsedResult(
+            tool="crackmapexec", hosts=[Host(ip="10.0.0.5", hostname="dc01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    note = (tmp_path / "hosts" / "10-0-0-5.md").read_text()
+    assert "Also Known As" not in note  # no spurious case-variant alias
+
+
+def test_resolve_host_note_merges_on_confirmed_ip_hostname_link(
+    tmp_path: Path,
+) -> None:
+    """Item 1: a hostname/IP reference resolves to the one note a tool already
+    tied that hostname to (confirmed link), case-insensitively."""
+
+    from pentnote.workspace.store import resolve_host_note_path
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    for reference in ("10.0.0.5", "DC01", "dc01"):
+        path, warning = resolve_host_note_path(tmp_path, reference)
+        assert path.name == "10-0-0-5.md", reference
+        assert warning is None, reference
+
+
+def test_resolve_host_note_unconfirmed_link_stays_separate_and_warns(
+    tmp_path: Path,
+) -> None:
+    """Item 1: a plausible-but-unconfirmed match (shared first label only) is
+    never auto-merged -- it returns a fresh path plus a warning to reconcile."""
+
+    from pentnote.workspace.store import resolve_host_note_path
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    path, warning = resolve_host_note_path(tmp_path, "DC01.OTHER.LOCAL")
+
+    assert path.name == "dc01-other-local.md"  # separate note, not merged
+    assert warning is not None
+    assert "possible duplicate" in warning
+
+
+def test_record_unsupported_tool_surfaces_possible_duplicate_warning(
+    tmp_path: Path, capsys
+) -> None:
+    """Item 1: an unconfirmed match reached through a real write path warns on
+    stderr and creates a separate note instead of silently wrong-merging."""
+
+    from pentnote.workspace.store import record_unsupported_tool
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    record_unsupported_tool(tmp_path, "DC01.OTHER.LOCAL", "hydra", "hydra x")
+    captured = capsys.readouterr()
+
+    assert "possible duplicate" in captured.err
+    assert (tmp_path / "hosts" / "dc01-other-local.md").exists()  # stayed separate
+
+
+def test_same_tool_rerun_merges_open_ports_by_port_key_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    """Re-running the SAME tool against a host must row-merge the Open Ports table.
+
+    Regression guard for same-tool-rerun row loss/duplication: a second nmap run
+    (e.g. after widening scope) must update a changed row in place keyed by the
+    port's natural key, append genuinely new ports, and never drop the earlier
+    run's ports or emit duplicate rows for a port already listed.
+    """
+
+    first = ParsedResult(
+        tool="nmap",
+        hosts=[
+            Host(
+                ip="10.0.0.5",
+                ports=[
+                    Port(22, "tcp", "ssh", "OpenSSH 8.0", "open"),
+                    Port(80, "tcp", "http", "Apache 2.4.1", "open"),
+                ],
+            )
+        ],
+    )
+    second = ParsedResult(
+        tool="nmap",
+        hosts=[
+            Host(
+                ip="10.0.0.5",
+                ports=[
+                    Port(80, "tcp", "http", "Apache 2.4.62", "open"),  # changed
+                    Port(443, "tcp", "https", "nginx 1.25", "open"),  # new
+                ],
+            )
+        ],
+    )
+
+    write_result_markdown(first, tmp_path, engagement_name="E")
+    write_result_markdown(second, tmp_path, engagement_name="E")
+
+    note = (tmp_path / "hosts" / "10-0-0-5.md").read_text()
+    port_rows = [
+        line
+        for line in note.splitlines()
+        if line.startswith("| ") and line.split("|")[1].strip().isdigit()
+    ]
+
+    # No duplicate rows for a port already present.
+    assert sum(row.split("|")[1].strip() == "80" for row in port_rows) == 1
+    # Earlier run's port retained, new port appended.
+    assert any(row.split("|")[1].strip() == "22" for row in port_rows)
+    assert any(row.split("|")[1].strip() == "443" for row in port_rows)
+    # Changed row updated in place with the newer version.
+    assert "Apache 2.4.62" in note
+    assert "Apache 2.4.1" not in note
 
 
 def test_write_result_markdown_merges_existing_host_ports(tmp_path: Path) -> None:
@@ -131,6 +349,122 @@ def test_write_result_markdown_merges_existing_host_ports(tmp_path: Path) -> Non
     assert "manual analyst note" in note
 
 
+def test_write_result_markdown_cross_tool_write_does_not_clobber_prior_tool_data(
+    tmp_path: Path,
+) -> None:
+    """A second tool writing the same host note must not overwrite the first tool's data.
+
+    Root cause: `_merge_existing_host_note` used to rebuild the host's `Host`
+    object from scratch, forwarding only `ports`. Every other field --
+    `hostname`, `av_products`, and the frontmatter `tool` -- came solely from
+    whichever tool ran most recently, silently discarding the previous tool's
+    contribution instead of merging it. This reproduces that exact scenario:
+    nmap discovers a host under a DNS alias with open ports, then crackmapexec
+    resolves its real AD hostname and AV product on the same IP.
+    """
+
+    nmap_result = NmapParser().parse((FIXTURES / "nmap_sample.xml").read_text())
+    ip = nmap_result.hosts[0].ip
+    original_hostname = nmap_result.hosts[0].hostname
+    assert original_hostname is not None
+
+    write_result_markdown(nmap_result, tmp_path, engagement_name="Client_2026")
+    note_path = tmp_path / "hosts" / f"{ip.replace('.', '-')}.md"
+
+    cme_result = ParsedResult(
+        tool="crackmapexec",
+        partial=False,
+        hosts=[
+            Host(
+                ip=ip,
+                hostname="DC01",
+                os="Windows Server 2019 x64",
+                ports=[],
+                tags=[],
+                av_products=["Windows Defender"],
+            )
+        ],
+        credentials=[],
+        findings=[],
+        domain_objects=[],
+        raw_text="",
+    )
+    write_result_markdown(cme_result, tmp_path, engagement_name="Client_2026")
+
+    note = note_path.read_text()
+
+    # Both tools are tracked in frontmatter history, not just the last writer.
+    assert "tools: [nmap, crackmapexec]" in note
+    assert "tool: crackmapexec" in note
+
+    # nmap's Open Ports table survives the crackmapexec write untouched.
+    assert "| 22 | tcp | ssh | OpenSSH 9.2p1 Debian 2+deb12u7 | open |" in note
+    assert "| 80 | tcp | http | Apache httpd 2.4.66 | open |" in note
+
+    # crackmapexec's AD-resolved hostname wins, but nmap's alias is preserved.
+    assert "hostname: DC01" in note
+    assert f"| Also Known As | {original_hostname} |" in note
+
+    # crackmapexec's Security Products contribution is present.
+    assert "| Windows Defender | Detected |" in note
+
+
+def test_write_result_markdown_same_tool_rerun_refreshes_its_own_hostname(
+    tmp_path: Path,
+) -> None:
+    """A tool re-running must be able to correct its own previously-reported hostname.
+
+    The hostname-priority rule exists to stop a *different* tool's generic
+    alias from clobbering an already-resolved AD hostname. It must not also
+    freeze a tool's own value in place: nmap resolving a corrected PTR record
+    on a rescan should update the primary hostname, not get permanently
+    demoted to an alias behind its own stale first guess.
+    """
+
+    ip = "10.6.6.6"
+    first = ParsedResult(
+        tool="nmap",
+        partial=False,
+        hosts=[
+            Host(
+                ip=ip,
+                hostname="stale.htb",
+                os=None,
+                ports=[Port(22, "tcp", "ssh", None, "open")],
+                tags=[],
+            )
+        ],
+        credentials=[],
+        findings=[],
+        domain_objects=[],
+        raw_text="",
+    )
+    second = ParsedResult(
+        tool="nmap",
+        partial=False,
+        hosts=[
+            Host(
+                ip=ip,
+                hostname="corrected.htb",
+                os=None,
+                ports=[Port(22, "tcp", "ssh", None, "open")],
+                tags=[],
+            )
+        ],
+        credentials=[],
+        findings=[],
+        domain_objects=[],
+        raw_text="",
+    )
+
+    write_result_markdown(first, tmp_path, engagement_name="Client_2026")
+    write_result_markdown(second, tmp_path, engagement_name="Client_2026")
+
+    note = (tmp_path / "hosts" / f"{ip.replace('.', '-')}.md").read_text()
+    assert "hostname: corrected.htb" in note
+    assert "| Also Known As | stale.htb |" in note
+
+
 def test_write_result_markdown_writes_credentials_findings_and_domain(
     tmp_path: Path,
 ) -> None:
@@ -149,6 +483,39 @@ def test_write_result_markdown_writes_credentials_findings_and_domain(
     assert any("credentials" in str(path) for path in cme_paths)
     assert any("findings" in str(path) for path in cme_paths)
     assert any("domain" in str(path) for path in domain_paths)
+
+
+def test_write_result_markdown_writes_loot_note_for_parsed_artifact(
+    tmp_path: Path,
+) -> None:
+    """Parser-discovered artifacts must be written to a notes/loot/ note.
+
+    Regression guard for the krb5 silent-drop: a ParsedResult carrying loot
+    now produces a loot note under notes/loot/<type>/<slug>.md recording the
+    artifact path, rather than the path vanishing after parsing.
+    """
+
+    result = ParsedResult(
+        tool="crackmapexec",
+        loot=[
+            WorkspaceLoot(
+                type="file",
+                host="10.10.11.174",
+                value="./krb5.conf",
+                path="./krb5.conf",
+                notes="krb5 conf (crackmapexec)",
+            )
+        ],
+    )
+
+    written = write_result_markdown(result, tmp_path, engagement_name="Client_2026")
+
+    loot_note = tmp_path / "loot" / "file" / "krb5-conf.md"
+    assert loot_note in written
+    body = loot_note.read_text()
+    assert "type: file" in body
+    assert "| Path | ./krb5.conf |" in body
+    assert "host: 10.10.11.174" in body
 
 
 def test_finding_path_uses_tool_subfolder(tmp_path: Path) -> None:
@@ -477,6 +844,43 @@ def test_report_has_executive_summary_section(tmp_path: Path) -> None:
 
     assert "## Executive Summary" in report
     assert "| Critical | 1 |" in report
+
+
+def test_report_empty_sections_use_one_consistent_marker(tmp_path: Path) -> None:
+    report = _write_test_report(tmp_path, [])
+
+    # Every empty list section uses the same marker; empty tables use all-N/A
+    # rows (the same convention the host-note writer uses).
+    for section in ("## Attack Chains Detected", "## Findings", "## Evidence Appendix"):
+        assert section in report
+    assert "None recorded." in report
+    assert "| N/A | N/A |" in report
+    # The retired, inconsistent markers must be gone.
+    assert "None detected." not in report
+    assert "No findings recorded." not in report
+    assert "No evidence recorded." not in report
+
+
+def test_report_section_order_is_stable_regardless_of_data(tmp_path: Path) -> None:
+    ordered_sections = [
+        "## Executive Summary",
+        "## Attack Chains Detected",
+        "## Top 5 Risks",
+        "## Remediation Roadmap",
+        "## Affected Assets",
+        "## Findings",
+        "## Evidence Appendix",
+        "## MITRE ATT&CK Coverage",
+    ]
+
+    empty_report = _write_test_report(tmp_path, [])
+    populated_report = _write_test_report(
+        tmp_path, [_report_finding("Critical Risk", Severity.CRITICAL)]
+    )
+
+    for report in (empty_report, populated_report):
+        positions = [report.index(section) for section in ordered_sections]
+        assert positions == sorted(positions)
 
 
 def test_report_sorts_findings_by_severity(tmp_path: Path) -> None:
