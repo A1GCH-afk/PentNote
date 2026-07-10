@@ -18,6 +18,7 @@ from pentnote.core.engagement import (
     save_engagement_config,
     save_findings,
 )
+from pentnote.core.init_engine import ensure_operator_gitignore
 from pentnote.core.models import EngagementType, Finding, Severity, TargetGroup
 from pentnote.generators.markdown import _assign_target_group, write_result_markdown
 from pentnote.generators.report import write_report
@@ -148,6 +149,120 @@ def test_save_findings_write_preserves_permissions(tmp_path: Path) -> None:
     save_findings(engagement, [])
 
     assert stat.S_IMODE(engagement.findings_path.stat().st_mode) == 0o640
+
+
+def test_gitignore_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    gitignore_path = tmp_path / ".gitignore"
+    # Drop an entry so ensure_operator_gitignore has something to re-add and
+    # therefore actually reaches the write path below.
+    stripped = (
+        "\n".join(
+            line
+            for line in gitignore_path.read_text(encoding="utf-8").splitlines()
+            if line != ".pentnote/local.json"
+        )
+        + "\n"
+    )
+    gitignore_path.write_text(stripped, encoding="utf-8")
+
+    def boom_replace(src, dst):
+        raise OSError("simulated crash mid-write")
+
+    monkeypatch.setattr(os, "replace", boom_replace)
+
+    with pytest.raises(OSError):
+        ensure_operator_gitignore(tmp_path)
+
+    assert gitignore_path.read_text(encoding="utf-8") == stripped
+    assert list(gitignore_path.parent.glob("*.tmp")) == []
+
+
+def test_gitignore_write_uses_same_directory_temp_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    gitignore_path = tmp_path / ".gitignore"
+    gitignore_path.write_text("custom-entry\n", encoding="utf-8")
+    seen: dict[str, Path] = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["tmp_parent"] = Path(src).parent
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    ensure_operator_gitignore(tmp_path)
+
+    assert seen["tmp_parent"] == gitignore_path.parent
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_gitignore_write_preserves_permissions(tmp_path: Path) -> None:
+    init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+    gitignore_path = tmp_path / ".gitignore"
+    # Drop an entry so ensure_operator_gitignore actually rewrites the file.
+    stripped = (
+        "\n".join(
+            line
+            for line in gitignore_path.read_text(encoding="utf-8").splitlines()
+            if line != ".pentnote/local.json"
+        )
+        + "\n"
+    )
+    gitignore_path.write_text(stripped, encoding="utf-8")
+    os.chmod(gitignore_path, 0o640)
+
+    ensure_operator_gitignore(tmp_path)
+
+    assert stat.S_IMODE(gitignore_path.stat().st_mode) == 0o640
+
+
+def test_init_local_json_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from pentnote.core import init_engine
+
+    real_atomic_write_json = init_engine.atomic_write_json
+
+    def boom(path, value, *args, **kwargs):
+        if path.name == "local.json":
+            raise OSError("simulated crash mid-write")
+        return real_atomic_write_json(path, value, *args, **kwargs)
+
+    monkeypatch.setattr(init_engine, "atomic_write_json", boom)
+
+    with pytest.raises(OSError):
+        init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+
+    local_path = tmp_path / ".pentnote" / "local.json"
+    assert not local_path.exists()
+    assert list(local_path.parent.glob("*.tmp")) == []
+
+
+def test_init_findings_json_write_survives_mid_write_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from pentnote.core import init_engine
+
+    real_atomic_write_json = init_engine.atomic_write_json
+
+    def boom(path, value, *args, **kwargs):
+        if path.name == "findings.json":
+            raise OSError("simulated crash mid-write")
+        return real_atomic_write_json(path, value, *args, **kwargs)
+
+    monkeypatch.setattr(init_engine, "atomic_write_json", boom)
+
+    with pytest.raises(OSError):
+        init_engagement(tmp_path, "Client_2026", ["192.168.56.0/24"])
+
+    findings_path = tmp_path / ".pentnote" / "findings.json"
+    assert not findings_path.exists()
+    assert list(findings_path.parent.glob("*.tmp")) == []
 
 
 def test_init_writes_opsec_gitignore_and_local_template(tmp_path: Path) -> None:
