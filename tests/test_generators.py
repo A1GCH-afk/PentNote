@@ -151,6 +151,97 @@ def test_host_note_write_survives_interrupted_rename(
     assert note.read_text() == original  # prior complete note survived
 
 
+def test_host_note_merge_is_case_insensitive_for_hostname(tmp_path: Path) -> None:
+    """Item 1 (case-insensitive): the same hostname in a different case is the
+    same host, not a superseded name to demote into an alias."""
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+    write_result_markdown(
+        ParsedResult(
+            tool="crackmapexec", hosts=[Host(ip="10.0.0.5", hostname="dc01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    note = (tmp_path / "hosts" / "10-0-0-5.md").read_text()
+    assert "Also Known As" not in note  # no spurious case-variant alias
+
+
+def test_resolve_host_note_merges_on_confirmed_ip_hostname_link(
+    tmp_path: Path,
+) -> None:
+    """Item 1: a hostname/IP reference resolves to the one note a tool already
+    tied that hostname to (confirmed link), case-insensitively."""
+
+    from pentnote.workspace.store import resolve_host_note_path
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    for reference in ("10.0.0.5", "DC01", "dc01"):
+        path, warning = resolve_host_note_path(tmp_path, reference)
+        assert path.name == "10-0-0-5.md", reference
+        assert warning is None, reference
+
+
+def test_resolve_host_note_unconfirmed_link_stays_separate_and_warns(
+    tmp_path: Path,
+) -> None:
+    """Item 1: a plausible-but-unconfirmed match (shared first label only) is
+    never auto-merged -- it returns a fresh path plus a warning to reconcile."""
+
+    from pentnote.workspace.store import resolve_host_note_path
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    path, warning = resolve_host_note_path(tmp_path, "DC01.OTHER.LOCAL")
+
+    assert path.name == "dc01-other-local.md"  # separate note, not merged
+    assert warning is not None
+    assert "possible duplicate" in warning
+
+
+def test_record_unsupported_tool_surfaces_possible_duplicate_warning(
+    tmp_path: Path, capsys
+) -> None:
+    """Item 1: an unconfirmed match reached through a real write path warns on
+    stderr and creates a separate note instead of silently wrong-merging."""
+
+    from pentnote.workspace.store import record_unsupported_tool
+
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    record_unsupported_tool(tmp_path, "DC01.OTHER.LOCAL", "hydra", "hydra x")
+    captured = capsys.readouterr()
+
+    assert "possible duplicate" in captured.err
+    assert (tmp_path / "hosts" / "dc01-other-local.md").exists()  # stayed separate
+
+
 def test_same_tool_rerun_merges_open_ports_by_port_key_without_duplicates(
     tmp_path: Path,
 ) -> None:
