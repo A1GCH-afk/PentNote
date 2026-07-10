@@ -652,6 +652,43 @@ def test_report_has_executive_summary_section(tmp_path: Path) -> None:
     assert "| Critical | 1 |" in report
 
 
+def test_report_empty_sections_use_one_consistent_marker(tmp_path: Path) -> None:
+    report = _write_test_report(tmp_path, [])
+
+    # Every empty list section uses the same marker; empty tables use all-N/A
+    # rows (the same convention the host-note writer uses).
+    for section in ("## Attack Chains Detected", "## Findings", "## Evidence Appendix"):
+        assert section in report
+    assert "None recorded." in report
+    assert "| N/A | N/A |" in report
+    # The retired, inconsistent markers must be gone.
+    assert "None detected." not in report
+    assert "No findings recorded." not in report
+    assert "No evidence recorded." not in report
+
+
+def test_report_section_order_is_stable_regardless_of_data(tmp_path: Path) -> None:
+    ordered_sections = [
+        "## Executive Summary",
+        "## Attack Chains Detected",
+        "## Top 5 Risks",
+        "## Remediation Roadmap",
+        "## Affected Assets",
+        "## Findings",
+        "## Evidence Appendix",
+        "## MITRE ATT&CK Coverage",
+    ]
+
+    empty_report = _write_test_report(tmp_path, [])
+    populated_report = _write_test_report(
+        tmp_path, [_report_finding("Critical Risk", Severity.CRITICAL)]
+    )
+
+    for report in (empty_report, populated_report):
+        positions = [report.index(section) for section in ordered_sections]
+        assert positions == sorted(positions)
+
+
 def test_report_sorts_findings_by_severity(tmp_path: Path) -> None:
     report = _write_test_report(
         tmp_path,

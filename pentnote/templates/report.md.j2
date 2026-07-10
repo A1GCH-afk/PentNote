@@ -27,7 +27,7 @@ date: {{ iso_timestamp }}
 {% for chain in executive_summary.chains_detected -%}
 - **{{ chain.severity }}:** {{ chain.label }} — {{ chain.message }}
 {% else -%}
-- None detected.
+None recorded.
 {% endfor %}
 
 ## Top 5 Risks
@@ -36,7 +36,7 @@ date: {{ iso_timestamp }}
 {% for row in top_risk_rows -%}
 | {{ row.rank }} | {{ row.finding.title }} | {{ row.finding.severity.value|title }} | {{ "%.2f"|format(row.risk_score) }} | {{ row.exploitability }} |
 {% else -%}
-| N/A | No findings recorded. | N/A | 0.00 | N/A |
+| N/A | N/A | N/A | N/A | N/A |
 {% endfor %}
 
 ## Remediation Roadmap
@@ -45,7 +45,7 @@ date: {{ iso_timestamp }}
 {% for item in remediation_items -%}
 | {{ item.priority }} | {{ item.finding_title }} | {{ item.severity.value|title }} | {{ item.effort }} | {{ item.d3fend_ids | join(", ") if item.d3fend_ids else "N/A" }} | {{ item.recommendation }} |
 {% else -%}
-| N/A | No findings recorded. | N/A | N/A | N/A | N/A |
+| N/A | N/A | N/A | N/A | N/A | N/A |
 {% endfor %}
 
 {% if remediated_findings %}
@@ -64,7 +64,7 @@ date: {{ iso_timestamp }}
 {% for host, finding_count in affected_asset_rows -%}
 | {{ host }} | {{ finding_count }} |
 {% else -%}
-| N/A | 0 |
+| N/A | N/A |
 {% endfor %}
 
 {% if target_group_rows %}
@@ -98,7 +98,7 @@ date: {{ iso_timestamp }}
 {% endfor %}
 
 {% else -%}
-No findings recorded.
+None recorded.
 {% endfor %}
 
 ## Recommendations
@@ -126,14 +126,14 @@ No findings recorded.
 ```
 
 {% else -%}
-No evidence recorded.
+None recorded.
 {% endfor %}
 
 ## MITRE ATT&CK Coverage
 {% for technique_id in mitre_coverage -%}
 - {{ technique_id }}
 {% else -%}
-- N/A
+None recorded.
 {% endfor %}
 
 ## Navigator Layer Reference
