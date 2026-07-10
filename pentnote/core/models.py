@@ -196,6 +196,7 @@ class Host(PentNoteModel):
 
     ip: str
     hostname: str | None = None
+    hostname_aliases: list[str] = Field(default_factory=list)
     os: str | None = None
     ports: list[Port] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)

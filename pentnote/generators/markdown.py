@@ -89,6 +89,7 @@ def render_host_markdown(
     *,
     engagement_name: str,
     tool_name: str,
+    tool_history: list[str] | None = None,
     iso_timestamp: str | None = None,
 ) -> str:
     """Render a host object to Markdown."""
@@ -98,6 +99,7 @@ def render_host_markdown(
     return template.render(
         host=host,
         tags=_format_tags(_host_frontmatter_tags(host)),
+        tools=_format_list(tool_history or [tool_name]),
         mitre_tags=", ".join(match.technique_id for match in host.mitre_matches)
         or "N/A",
         severity_reason=host_severity_reason(host),
@@ -203,9 +205,10 @@ def write_result_markdown(
         path = host_dir / f"{_slugify(host.ip)}.md"
         existing_note = path.read_text(encoding="utf-8") if path.exists() else None
         rendered = render_host_markdown(
-            _merge_existing_host_note(host, existing_note),
+            _merge_existing_host_note(host, existing_note, result.tool),
             engagement_name=engagement_name,
             tool_name=result.tool,
+            tool_history=_merge_tool_history(existing_note, result.tool),
         )
         if existing_note:
             rendered = _preserve_notes_section(rendered, existing_note)
@@ -504,18 +507,125 @@ def _enrich_host(host: Host) -> None:
         host.defenses = defense_tuples_for_matches(host.mitre_matches)
 
 
-def _merge_existing_host_note(host: Host, existing_note: str | None) -> Host:
+def _merge_existing_host_note(
+    host: Host, existing_note: str | None, tool_name: str
+) -> Host:
     if not existing_note:
         return host
 
+    hostname, hostname_aliases = _merge_hostname(
+        host.hostname, tool_name, existing_note
+    )
     merged = Host(
         ip=host.ip,
-        hostname=host.hostname or _target_info_value(existing_note, "Hostname"),
+        hostname=hostname,
+        hostname_aliases=hostname_aliases,
         os=host.os or _target_info_value(existing_note, "OS"),
         ports=_merge_ports(_ports_from_note(existing_note), host.ports),
         tags=list(dict.fromkeys(host.tags)),
+        av_products=list(
+            dict.fromkeys([*_av_products_from_note(existing_note), *host.av_products])
+        ),
     )
     return merged
+
+
+# Tools that resolve a host's actual AD/NetBIOS computer name (e.g. crackmapexec's
+# SMB negotiation) outrank DNS/PTR-derived names (e.g. nmap's reverse-DNS lookup),
+# which are often just engagement aliases rather than the host's real identity.
+_HOSTNAME_AUTHORITATIVE_TOOLS = frozenset({"crackmapexec"})
+
+
+def _merge_hostname(
+    incoming: str | None, tool_name: str, existing_note: str
+) -> tuple[str | None, list[str]]:
+    """Resolve the primary hostname plus any superseded aliases.
+
+    A superseded hostname is never discarded outright -- it is kept as an
+    alias so engagement nicknames and DNS names remain discoverable even
+    after a more authoritative tool identifies the host under another name.
+    A tool re-running always gets to refresh its own previously-reported
+    value (e.g. nmap correcting a stale PTR record); the authoritative-tool
+    priority only decides ties between two *different* tools.
+    """
+
+    existing_hostname = _target_info_value(existing_note, "Hostname")
+    aliases = _hostname_aliases_from_note(existing_note)
+
+    if not incoming:
+        return existing_hostname, aliases
+    if not existing_hostname or incoming == existing_hostname:
+        return incoming, aliases
+
+    same_tool_rerun = tool_name == _last_tool_from_note(existing_note)
+    if same_tool_rerun or tool_name in _HOSTNAME_AUTHORITATIVE_TOOLS:
+        primary, demoted = incoming, existing_hostname
+    else:
+        primary, demoted = existing_hostname, incoming
+
+    if demoted not in aliases:
+        aliases = [*aliases, demoted]
+    return primary, aliases
+
+
+def _last_tool_from_note(markdown: str) -> str | None:
+    for index, line in enumerate(markdown.splitlines()):
+        if index > 0 and line == "---":
+            break
+        if line.startswith("tool:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def _hostname_aliases_from_note(markdown: str) -> list[str]:
+    value = _target_info_value(markdown, "Also Known As")
+    if not value:
+        return []
+    return [alias.strip() for alias in value.split(",") if alias.strip()]
+
+
+def _av_products_from_note(markdown: str) -> list[str]:
+    products: list[str] = []
+    in_section = False
+    for line in markdown.splitlines():
+        if line == "## Security Products":
+            in_section = True
+            continue
+        if in_section and line.startswith("## "):
+            break
+        if not in_section or not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 2 or not cells[0] or cells[0] in ("Product", "---"):
+            continue
+        products.append(cells[0])
+    return products
+
+
+def _merge_tool_history(existing_note: str | None, current_tool: str) -> list[str]:
+    history = _tools_from_note(existing_note) if existing_note else []
+    if current_tool not in history:
+        history = [*history, current_tool]
+    return history
+
+
+def _tools_from_note(markdown: str) -> list[str]:
+    tool_value: str | None = None
+    for index, line in enumerate(markdown.splitlines()):
+        if index > 0 and line == "---":
+            break
+        if line.startswith("tools:"):
+            return _parse_bracket_list(line.split(":", 1)[1])
+        if line.startswith("tool:"):
+            tool_value = line.split(":", 1)[1].strip()
+    return [tool_value] if tool_value else []
+
+
+def _parse_bracket_list(raw: str) -> list[str]:
+    value = raw.strip().strip("[]").strip()
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _merge_ports(existing: list[Port], incoming: list[Port]) -> list[Port]:
@@ -612,6 +722,11 @@ def _format_tags(tags: list[str]) -> str:
         value = tag.strip().replace(" ", "-")
         if value and value not in cleaned:
             cleaned.append(value)
+    return "[" + ", ".join(cleaned) + "]"
+
+
+def _format_list(values: list[str]) -> str:
+    cleaned = list(dict.fromkeys(value.strip() for value in values if value.strip()))
     return "[" + ", ".join(cleaned) + "]"
 
 
