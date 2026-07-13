@@ -175,11 +175,12 @@ def test_host_note_merge_is_case_insensitive_for_hostname(tmp_path: Path) -> Non
     assert "Also Known As" not in note  # no spurious case-variant alias
 
 
-def test_resolve_host_note_merges_on_confirmed_ip_hostname_link(
+def test_resolve_host_note_merges_on_data_backed_link_not_hostname_string(
     tmp_path: Path,
 ) -> None:
-    """Item 1: a hostname/IP reference resolves to the one note a tool already
-    tied that hostname to (confirmed link), case-insensitively."""
+    """Item 1 (positive): auto-merge requires a data-backed link -- an IP
+    identity, or a hostname match corroborated by a matching ``known_ip``.
+    Both still merge (case-insensitively); a bare hostname string does not."""
 
     from pentnote.workspace.store import resolve_host_note_path
 
@@ -191,10 +192,49 @@ def test_resolve_host_note_merges_on_confirmed_ip_hostname_link(
         engagement_name="E",
     )
 
-    for reference in ("10.0.0.5", "DC01", "dc01"):
-        path, warning = resolve_host_note_path(tmp_path, reference)
+    # Network-layer identity: an incoming IP equal to the note's host: merges.
+    path, warning = resolve_host_note_path(tmp_path, "10.0.0.5")
+    assert path.name == "10-0-0-5.md"
+    assert warning is None
+
+    # Corroborated hostname: the hostname a tool tied to this IP, supplied with a
+    # matching known_ip, is a confirmed link -> merges, case-insensitively.
+    for reference in ("DC01", "dc01"):
+        path, warning = resolve_host_note_path(tmp_path, reference, known_ip="10.0.0.5")
         assert path.name == "10-0-0-5.md", reference
         assert warning is None, reference
+
+
+def test_resolve_host_note_identical_hostname_different_host_does_not_merge(
+    tmp_path: Path,
+) -> None:
+    """Item 1 (negative -- the case the audit required): two different hosts that
+    share an identical hostname string must NOT auto-merge. A reused NetBIOS/host
+    name (cloned image, default name, DC pair) is not proof of one host, so a
+    bare-name match -- or one with a non-matching known_ip -- stays separate."""
+
+    from pentnote.workspace.store import resolve_host_note_path
+
+    # Host A: 10.0.0.5, tool-captured hostname SRV01.
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="SRV01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    # A genuinely different host also named SRV01, referenced by bare name with
+    # no corroborating IP, must land on a fresh note -- not host A's.
+    path, warning = resolve_host_note_path(tmp_path, "srv01")
+    assert path.name == "srv01.md"
+    assert warning is not None
+    assert "possible duplicate" in warning
+
+    # A supplied but mismatched known_ip does not authorize the merge either.
+    path, warning = resolve_host_note_path(tmp_path, "srv01", known_ip="10.0.0.9")
+    assert path.name == "srv01.md"
+    assert warning is not None
 
 
 def test_resolve_host_note_unconfirmed_link_stays_separate_and_warns(
