@@ -108,20 +108,20 @@ def test_version_in_status_output() -> None:
         result = runner.invoke(main, ["status"])
 
     assert result.exit_code == 0, result.output
-    assert "PentNote v1.0.1" in result.output
+    assert "PentNote v1.1.0" in result.output
 
 
 def test_version_matches_pyproject() -> None:
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
 
-    assert pyproject["project"]["version"] == __version__ == "1.0.1"
+    assert pyproject["project"]["version"] == __version__ == "1.1.0"
 
 
 def test_version_flag_outputs_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.strip() == "pentnote 1.0.1"
+    assert result.output.strip() == "pentnote 1.1.0"
 
 
 def test_changelog_documents_current_release() -> None:
@@ -129,6 +129,7 @@ def test_changelog_documents_current_release() -> None:
 
     assert "## [1.0.0] - 2026-07-02" in changelog
     assert "Consolidated the CLI to 12 focused top-level commands." in changelog
+    assert "## [1.1.0] - 2026-07-13" in changelog
 
 
 def test_publish_workflow_requires_manual_confirmation() -> None:
