@@ -3,6 +3,42 @@
 All notable changes to PentNote are documented here.
 Format follows Keep a Changelog (keepachangelog.com).
 
+## [1.1.0] - 2026-07-13
+
+### Added
+- `pentnote status --health --check-merges` — a read-only audit that flags name
+  collisions between *separate* host notes: two notes that share a host/NetBIOS
+  name but sit at different IPs with no confirmed network-layer link. It lists
+  each affected note and the note it collides with so you can review and split
+  them by hand; it never edits or splits a note automatically.
+
+  Scope and limitation: this catches only cases where both hosts still have
+  their own separate notes. It does **not** recover a host that was already
+  fully merged/absorbed into another note under the old rule — once two hosts'
+  data has been combined into a single note, there is no remaining trace on disk
+  to detect that it happened. If you suspect a specific host was wrongly merged
+  in a v1.0.1 vault, that needs a manual review of the note's contents, not this
+  check.
+
+### Changed
+- **Host identity merging now requires a confirmed, data-backed link.** v1.0.1
+  resolved host notes referenced by IP/hostname/FQDN to one canonical note "when
+  the note already has a confirmed link" — but it accepted a matching
+  hostname/NetBIOS name (the text alone) as that link. It no longer does: a write
+  is folded into an existing host note only on network-layer evidence — a matching
+  IP, or a hostname backed by a matching IP — never on the name text alone. Two
+  different hosts that happen to share a name (a domain-controller pair, cloned
+  images, reused default names) no longer silently collapse into one note; the
+  ambiguous write goes to a separate note with a warning instead. **This does not
+  rewrite notes you already have:** vaults created with v1.0.1 may still contain
+  notes that were merged under the old name-only rule, so run
+  `status --health --check-merges` to find and review any that were affected.
+- Internal code-quality pass with no behavior change: added missing type hints
+  and docstrings, removed unreferenced dead helpers, and consolidated a
+  duplicated graph-layout helper.
+- No change to the CrackMapExec/NetExec parser this release — the artifact-path
+  loot recovery and unrecognized-output surfacing already shipped in v1.0.1.
+
 ## [1.0.1] - 2026-07-10
 
 ### Added

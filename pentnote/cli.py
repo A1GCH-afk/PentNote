@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
@@ -29,7 +29,13 @@ from pentnote.core.engagement import (
 )
 from pentnote.core.engine import parse_content
 from pentnote.core.fileio import atomic_write_json
-from pentnote.core.models import EngagementType, TargetGroup, WorkspaceCredential
+from pentnote.core.models import (
+    Engagement,
+    EngagementType,
+    Finding,
+    TargetGroup,
+    WorkspaceCredential,
+)
 from pentnote.generators.index import write_index
 from pentnote.generators.markdown import _assign_target_group
 from pentnote.generators.report import write_report
@@ -56,6 +62,7 @@ from pentnote.workspace import creds, log, loot, note
 from pentnote.workspace.store import (
     WorkspaceStore,
     credential_from_model,
+    find_suspected_host_merges,
     loot_from_model,
 )
 
@@ -406,7 +413,7 @@ def targets_show(name: str, vault_path: Path | None) -> None:
         click.echo(f"  {severity.title()}: {count}")
 
 
-def _target_group_counts(engagement) -> list[dict[str, object]]:
+def _target_group_counts(engagement: Engagement) -> list[dict[str, object]]:
     findings = load_findings(engagement)
     credentials = WorkspaceStore(engagement.root).get_credentials({})
     hosts = sorted(
@@ -442,7 +449,7 @@ def _target_group_counts(engagement) -> list[dict[str, object]]:
     return rows
 
 
-def _finding_in_group(finding, group: TargetGroup) -> bool:
+def _finding_in_group(finding: Finding, group: TargetGroup) -> bool:
     return any(
         _assign_target_group(host, [group]) == group.name
         for host in finding.affected_hosts
@@ -481,7 +488,7 @@ def _read_simple_frontmatter(path: Path) -> dict[str, str]:
     return frontmatter
 
 
-def _severity_counts_for_findings(findings) -> dict[str, int]:
+def _severity_counts_for_findings(findings: Iterable[Finding]) -> dict[str, int]:
     return {
         severity: sum(1 for finding in findings if finding.severity.value == severity)
         for severity in ("critical", "high", "medium", "low", "info")
@@ -693,6 +700,17 @@ def run_cmd(
     is_flag=True,
     help="With --health --fix, also apply low-severity cleanup fixes.",
 )
+@click.option(
+    "--check-merges",
+    "check_merges",
+    is_flag=True,
+    help=(
+        "With --health, flag name collisions between separate host notes "
+        "(same name, different IPs, no confirmed link) for manual review "
+        "(read-only). Does not detect a host already fully merged into "
+        "another note."
+    ),
+)
 @click.argument("vault_path", required=False, type=click.Path(path_type=Path))
 def status(
     vault_path: Path | None,
@@ -702,6 +720,7 @@ def status(
     fix: bool,
     dry_run: bool,
     include_low: bool,
+    check_merges: bool,
 ) -> None:
     """Show the current engagement summary."""
 
@@ -724,7 +743,7 @@ def status(
                 click.echo(f"{score.parser.tool_name}: {score.score:.0%}")
         return
 
-    if show_health or fix or dry_run or include_low:
+    if show_health or fix or dry_run or include_low or check_merges:
         engagement = _active_engagement(vault_path)
         issues = _doctor_issues(engagement)
         if fix or dry_run:
@@ -746,6 +765,8 @@ def status(
                 if path.exists()
                 else f"[✗] {path}: missing"
             )
+        if check_merges:
+            _print_suspected_merges(engagement.notes_dir)
         return
 
     engagement = _active_engagement(vault_path)
@@ -803,7 +824,7 @@ def _check_json(path: Path, label: str) -> None:
 DoctorFix = Callable[[bool], str]
 
 
-def _doctor_issues(engagement) -> list[dict[str, object]]:
+def _doctor_issues(engagement: Engagement) -> list[dict[str, object]]:
     issues: list[dict[str, object]] = []
     missing_gitignore = missing_required_gitignore_entries(engagement.root)
     for entry in missing_gitignore:
@@ -899,6 +920,36 @@ def _doctor_issue(
     }
 
 
+def _print_suspected_merges(notes_dir: Path) -> None:
+    """Report name collisions between separate host notes (read-only).
+
+    Flags pairs of notes that share a name but sit at different IPs — the
+    signature of a possible pre-1.1.0 wrong-merge. Does not detect a host that
+    was already fully absorbed into another note (no second note survives to
+    collide with); that case needs manual review of the note's contents.
+    """
+
+    flagged = find_suspected_host_merges(notes_dir)
+    if not flagged:
+        click.echo("[✓] host-merge check: no name collisions across host notes")
+        return
+    click.echo(
+        f"[!] host-merge check: {len(flagged)} host note(s) share a name with "
+        "another host but no IP link — review for a pre-1.1.0 merge:"
+    )
+    for suspect in flagged:
+        identity = suspect.hostname or suspect.ip or suspect.note_path.stem
+        rel = suspect.note_path.name
+        click.echo(
+            f"    [{suspect.confidence.upper()}] {rel} ({identity}, ip={suspect.ip or 'N/A'})"
+            f" collides with: {', '.join(suspect.collisions)}"
+        )
+    click.echo(
+        "    Read-only: verify each note and split by hand if two hosts were "
+        "conflated. Nothing was changed."
+    )
+
+
 def _print_doctor_issues(issues: list[dict[str, object]]) -> None:
     if not issues:
         click.echo("[✓] No fixable issues found")
@@ -983,7 +1034,7 @@ def _backup_and_reset_json(
     return fix
 
 
-def _orphaned_finding_notes(engagement) -> list[Path]:
+def _orphaned_finding_notes(engagement: Engagement) -> list[Path]:
     finding_dir = engagement.notes_dir / "findings"
     if not finding_dir.exists() or not _json_valid(engagement.findings_path):
         return []
@@ -1215,7 +1266,7 @@ def _read_input(input_path: Path | None) -> tuple[str, str]:
         raise click.FileError(str(input_path), hint=str(exc)) from exc
 
 
-def _resolve_engagement(output_dir: Path | None):
+def _resolve_engagement(output_dir: Path | None) -> Engagement | None:
     if output_dir and (output_dir / ".pentnote" / "config.json").exists():
         return maybe_load_engagement(output_dir)
     if output_dir is None:
@@ -1223,14 +1274,14 @@ def _resolve_engagement(output_dir: Path | None):
     return None
 
 
-def _active_engagement(vault_path: Path | None = None):
+def _active_engagement(vault_path: Path | None = None) -> Engagement:
     try:
         return load_engagement(vault_path)
     except EngagementError as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-def _active_findings():
+def _active_findings() -> list[Finding]:
     try:
         return load_findings(_active_engagement())
     except EngagementError as exc:

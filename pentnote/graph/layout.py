@@ -8,6 +8,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import networkx as nx
+
     from pentnote.graph.bloodhound import DomainGraph
 
 CoordinateMap = dict[str, tuple[int, int]]
@@ -28,27 +30,6 @@ class LayoutMode(StrEnum):
     GRID = "grid"
     TREE = "tree"
     FORCE = "force"
-
-
-def layout_graph(
-    graph: DomainGraph,
-    *,
-    seed: int = DEFAULT_SEED,
-    scale: int = DEFAULT_SCALE,
-    node_width: int = DEFAULT_NODE_WIDTH,
-    node_height: int = DEFAULT_NODE_HEIGHT,
-    padding: int = DEFAULT_PADDING,
-) -> CoordinateMap:
-    """Return stable, non-overlapping x/y positions for a domain graph."""
-
-    return _grid_layout(
-        graph,
-        seed=seed,
-        scale=scale,
-        node_width=node_width,
-        node_height=node_height,
-        padding=padding,
-    )
 
 
 def compute_layout(
@@ -263,7 +244,7 @@ def _networkx_positions(
 
     import networkx as nx
 
-    nx_graph = nx.DiGraph()
+    nx_graph: nx.DiGraph = nx.DiGraph()
     nx_graph.add_nodes_from(node_ids)
     nx_graph.add_edges_from(graph_edges)
 
