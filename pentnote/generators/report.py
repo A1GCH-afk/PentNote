@@ -380,10 +380,6 @@ def _score_and_sort_findings(
     )
 
 
-def _count_severity(findings: list[Finding], severity: Severity) -> int:
-    return sum(1 for finding in findings if finding.severity == severity)
-
-
 def _legacy_summary(executive_summary: dict) -> dict[str, int]:
     return {
         "critical": executive_summary["critical_count"],
