@@ -705,8 +705,10 @@ def run_cmd(
     "check_merges",
     is_flag=True,
     help=(
-        "With --health, flag host notes that the pre-1.1.0 rule may have merged "
-        "on hostname string-equality alone, for manual review (read-only)."
+        "With --health, flag name collisions between separate host notes "
+        "(same name, different IPs, no confirmed link) for manual review "
+        "(read-only). Does not detect a host already fully merged into "
+        "another note."
     ),
 )
 @click.argument("vault_path", required=False, type=click.Path(path_type=Path))
@@ -919,7 +921,13 @@ def _doctor_issue(
 
 
 def _print_suspected_merges(notes_dir: Path) -> None:
-    """Report host notes that the pre-1.1.0 rule may have merged (read-only)."""
+    """Report name collisions between separate host notes (read-only).
+
+    Flags pairs of notes that share a name but sit at different IPs — the
+    signature of a possible pre-1.1.0 wrong-merge. Does not detect a host that
+    was already fully absorbed into another note (no second note survives to
+    collide with); that case needs manual review of the note's contents.
+    """
 
     flagged = find_suspected_host_merges(notes_dir)
     if not flagged:
