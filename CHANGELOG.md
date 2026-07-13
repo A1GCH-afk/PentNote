@@ -36,6 +36,8 @@ Format follows Keep a Changelog (keepachangelog.com).
 - Internal code-quality pass with no behavior change: added missing type hints
   and docstrings, removed unreferenced dead helpers, and consolidated a
   duplicated graph-layout helper.
+- No change to the CrackMapExec/NetExec parser this release — the artifact-path
+  loot recovery and unrecognized-output surfacing already shipped in v1.0.1.
 
 ## [1.0.1] - 2026-07-10
 
