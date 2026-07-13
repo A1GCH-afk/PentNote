@@ -62,6 +62,7 @@ from pentnote.workspace import creds, log, loot, note
 from pentnote.workspace.store import (
     WorkspaceStore,
     credential_from_model,
+    find_suspected_host_merges,
     loot_from_model,
 )
 
@@ -699,6 +700,15 @@ def run_cmd(
     is_flag=True,
     help="With --health --fix, also apply low-severity cleanup fixes.",
 )
+@click.option(
+    "--check-merges",
+    "check_merges",
+    is_flag=True,
+    help=(
+        "With --health, flag host notes that the pre-1.1.0 rule may have merged "
+        "on hostname string-equality alone, for manual review (read-only)."
+    ),
+)
 @click.argument("vault_path", required=False, type=click.Path(path_type=Path))
 def status(
     vault_path: Path | None,
@@ -708,6 +718,7 @@ def status(
     fix: bool,
     dry_run: bool,
     include_low: bool,
+    check_merges: bool,
 ) -> None:
     """Show the current engagement summary."""
 
@@ -730,7 +741,7 @@ def status(
                 click.echo(f"{score.parser.tool_name}: {score.score:.0%}")
         return
 
-    if show_health or fix or dry_run or include_low:
+    if show_health or fix or dry_run or include_low or check_merges:
         engagement = _active_engagement(vault_path)
         issues = _doctor_issues(engagement)
         if fix or dry_run:
@@ -752,6 +763,8 @@ def status(
                 if path.exists()
                 else f"[✗] {path}: missing"
             )
+        if check_merges:
+            _print_suspected_merges(engagement.notes_dir)
         return
 
     engagement = _active_engagement(vault_path)
@@ -903,6 +916,30 @@ def _doctor_issue(
         "description": description,
         "fix": fix_func,
     }
+
+
+def _print_suspected_merges(notes_dir: Path) -> None:
+    """Report host notes that the pre-1.1.0 rule may have merged (read-only)."""
+
+    flagged = find_suspected_host_merges(notes_dir)
+    if not flagged:
+        click.echo("[✓] host-merge check: no name collisions across host notes")
+        return
+    click.echo(
+        f"[!] host-merge check: {len(flagged)} host note(s) share a name with "
+        "another host but no IP link — review for a pre-1.1.0 merge:"
+    )
+    for suspect in flagged:
+        identity = suspect.hostname or suspect.ip or suspect.note_path.stem
+        rel = suspect.note_path.name
+        click.echo(
+            f"    [{suspect.confidence.upper()}] {rel} ({identity}, ip={suspect.ip or 'N/A'})"
+            f" collides with: {', '.join(suspect.collisions)}"
+        )
+    click.echo(
+        "    Read-only: verify each note and split by hand if two hosts were "
+        "conflated. Nothing was changed."
+    )
 
 
 def _print_doctor_issues(issues: list[dict[str, object]]) -> None:

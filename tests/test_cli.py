@@ -812,6 +812,39 @@ def test_cli_status_uses_tables() -> None:
         assert "Credentials" in result.output
 
 
+def test_cli_status_check_merges_flags_and_clears() -> None:
+    runner = CliRunner()
+    host_a = (
+        "SMB  192.168.56.10  445  SRV01  "
+        "[*] Windows Server 2019 x64 (name:SRV01) (domain:LAB) (signing:False)\n"
+    )
+    host_b = (
+        "SMB  192.168.56.20  445  SRV01  "
+        "[*] Windows Server 2019 x64 (name:SRV01) (domain:LAB) (signing:False)\n"
+    )
+
+    with runner.isolated_filesystem():
+        runner.invoke(main, ["init", "Client_2026"])
+
+        # Clean vault: no name collisions -> check passes.
+        runner.invoke(main, ["parse", "-", "--tool", "cme"], input=host_a)
+        clean = runner.invoke(main, ["status", "--health", "--check-merges"])
+        assert clean.exit_code == 0, clean.output
+        assert "host-merge check: no name collisions" in clean.output
+
+        # A second, different host reusing the SRV01 name at another IP -> flagged.
+        runner.invoke(main, ["parse", "-", "--tool", "cme"], input=host_b)
+        flagged = runner.invoke(main, ["status", "--health", "--check-merges"])
+        assert flagged.exit_code == 0, flagged.output
+        assert "share a name with another host but no IP link" in flagged.output
+        assert "[HIGH]" in flagged.output
+        assert "Read-only" in flagged.output
+
+        # Default --health (without the flag) does not run the merge check.
+        plain = runner.invoke(main, ["status", "--health"])
+        assert "host-merge check" not in plain.output
+
+
 def test_cli_recursive_parse_and_error_paths() -> None:
     runner = CliRunner()
 

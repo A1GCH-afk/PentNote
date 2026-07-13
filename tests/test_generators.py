@@ -283,6 +283,69 @@ def test_record_unsupported_tool_surfaces_possible_duplicate_warning(
     assert (tmp_path / "hosts" / "dc01-other-local.md").exists()  # stayed separate
 
 
+def test_find_suspected_host_merges_flags_shared_hostname_different_ip(
+    tmp_path: Path,
+) -> None:
+    """Detection (SHOULD flag): two genuinely different hosts that share a
+    hostname string but sit at different IPs are exactly what the pre-1.1.0 rule
+    would have string-merged. The read-only check must surface both notes."""
+
+    from pentnote.workspace.store import find_suspected_host_merges
+
+    for ip in ("10.0.0.5", "10.0.0.9"):
+        write_result_markdown(
+            ParsedResult(tool="nmap", hosts=[Host(ip=ip, hostname="SRV01", ports=[])]),
+            tmp_path,
+            engagement_name="E",
+        )
+
+    flagged = find_suspected_host_merges(tmp_path)
+
+    assert {s.note_path.name for s in flagged} == {"10-0-0-5.md", "10-0-0-9.md"}
+    assert all(s.confidence == "high" for s in flagged)  # exact-name collision
+    # Each note names the other as its colliding counterpart.
+    a = next(s for s in flagged if s.note_path.name == "10-0-0-5.md")
+    assert any("10-0-0-9.md" in c for c in a.collisions)
+
+
+def test_find_suspected_host_merges_ignores_data_backed_distinct_hosts(
+    tmp_path: Path,
+) -> None:
+    """Detection (should NOT flag): a legitimate data-backed merge under the new
+    rule -- one host whose second observation (same IP) added an alias -- plus a
+    genuinely distinct host with its own name, produce no name collisions."""
+
+    from pentnote.workspace.store import find_suspected_host_merges
+
+    # Data-backed same-host merge: two observations at ONE IP fold into one note
+    # (DC01 + DC01.CORP.LOCAL alias) -- correct, IP-linked, not a conflation.
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.5", hostname="DC01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+    write_result_markdown(
+        ParsedResult(
+            tool="crackmapexec",
+            hosts=[Host(ip="10.0.0.5", hostname="DC01.CORP.LOCAL", ports=[])],
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+    # A separate, unrelated host with a distinct name.
+    write_result_markdown(
+        ParsedResult(
+            tool="nmap", hosts=[Host(ip="10.0.0.9", hostname="WEB01", ports=[])]
+        ),
+        tmp_path,
+        engagement_name="E",
+    )
+
+    assert find_suspected_host_merges(tmp_path) == []
+
+
 def test_same_tool_rerun_merges_open_ports_by_port_key_without_duplicates(
     tmp_path: Path,
 ) -> None:
