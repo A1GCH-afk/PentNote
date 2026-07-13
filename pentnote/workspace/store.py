@@ -262,7 +262,9 @@ def host_note_path(notes_dir: Path, target: str) -> Path:
     return notes_dir / "hosts" / f"{slugify(target)}.md"
 
 
-def resolve_host_note_path(notes_dir: Path, target: str) -> tuple[Path, str | None]:
+def resolve_host_note_path(
+    notes_dir: Path, target: str, *, known_ip: str | None = None
+) -> tuple[Path, str | None]:
     """Map a host identifier to the canonical host note, avoiding duplicates.
 
     A host is often referred to by different identifiers across tools/commands
@@ -270,13 +272,24 @@ def resolve_host_note_path(notes_dir: Path, target: str) -> tuple[Path, str | No
     note that already records ``target`` as one of its identities so writes
     land on one note instead of fragmenting.
 
-    Merges only on a *confirmed* link -- a case-insensitive exact match against
-    an identity a tool already captured into the note (its ``host:`` IP,
-    ``hostname:``, or recorded aliases). A merely plausible link (e.g. an FQDN
-    whose short label matches an existing note's hostname, or an ambiguous match
-    against several notes) is never auto-merged: it returns the fresh
-    slug-derived path plus a warning so the operator can reconcile manually,
-    because a silent wrong-merge corrupts a deliverable worse than a duplicate.
+    Auto-merges only on a **data-backed link**, never on hostname string-equality
+    alone (two distinct hosts routinely share a NetBIOS/host name -- cloned
+    images, reused defaults, a DC pair -- so an equal name is not proof of the
+    same host). Two signals qualify:
+
+    * **Network-layer identity** -- ``target`` is an IP equal to the note's
+      recorded ``host:`` IP. Within an engagement one IP is one host, and the
+      note captured that IP from tool output.
+    * **Corroborated hostname** -- ``target`` matches the note's ``hostname:``
+      or an alias *and* the caller passes ``known_ip`` matching the note's IP,
+      i.e. the incoming side asserts the same IP<->hostname pairing a tool
+      observed.
+
+    A hostname/alias match without a corroborating IP, an FQDN whose short label
+    matches an existing note's hostname, or an ambiguous match against several
+    notes is **never** auto-merged: it returns the fresh slug-derived path plus a
+    warning so the operator can reconcile manually, because a silent wrong-merge
+    corrupts a deliverable worse than a duplicate.
 
     Returns ``(path, warning_or_none)``.
     """
@@ -288,32 +301,38 @@ def resolve_host_note_path(notes_dir: Path, target: str) -> tuple[Path, str | No
         return default_path, None
 
     target_cf = target.strip().casefold()
-    exact: list[Path] = []
-    partial: list[str] = []
+    target_is_ip = _looks_like_ip(target)
+    known_ip_cf = known_ip.strip().casefold() if known_ip else ""
+    merges: list[Path] = []
+    possible: list[str] = []
     for note_path in sorted(hosts_dir.glob("*.md")):
         identity = _host_note_identity(note_path.read_text(encoding="utf-8"))
-        identities = {
+        ip_cf = identity["ip"].strip().casefold()
+        name_ids = {
             value.casefold()
-            for value in (identity["ip"], identity["hostname"], *identity["aliases"])
+            for value in (identity["hostname"], *identity["aliases"])
             if value
         }
-        if target_cf in identities:
-            exact.append(note_path)
-        elif _shares_first_label(target, identity["hostname"]):
-            partial.append(identity["hostname"])
+        ip_match = bool(ip_cf) and target_is_ip and target_cf == ip_cf
+        name_match = target_cf in name_ids
+        corroborated = name_match and bool(known_ip_cf) and known_ip_cf == ip_cf
+        if ip_match or corroborated:
+            merges.append(note_path)
+        elif name_match or _shares_first_label(target, identity["hostname"]):
+            possible.append(identity["hostname"] or identity["ip"] or note_path.stem)
 
-    if len(exact) == 1:
-        return exact[0], None
-    if len(exact) > 1:
-        names = ", ".join(path.name for path in exact)
+    if len(merges) == 1:
+        return merges[0], None
+    if len(merges) > 1:
+        names = ", ".join(path.name for path in merges)
         return default_path, (
             f"possible duplicate host: {target!r} matches multiple host notes "
             f"({names}); not auto-merging"
         )
-    if partial:
+    if possible:
         return default_path, (
-            f"possible duplicate host: {target!r} and {partial[0]!r} may be the "
-            "same target; not auto-merging without a confirmed IP/hostname link"
+            f"possible duplicate host: {target!r} and {possible[0]!r} may be the "
+            "same target; not auto-merging without a confirmed IP link"
         )
     return default_path, None
 
