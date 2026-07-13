@@ -9,6 +9,7 @@ from pyparsing import (
     Literal,
     OneOrMore,
     Optional,
+    ParserElement,
     Suppress,
     Word,
     alphanums,
@@ -135,7 +136,7 @@ class UniversalParser(AbstractParser):
         )
 
 
-def _scan(parser, content: str, field: str | None = None) -> list[str]:
+def _scan(parser: ParserElement, content: str, field: str | None = None) -> list[str]:
     values: list[str] = []
     for tokens, _, _ in parser.scan_string(content):
         if field:
