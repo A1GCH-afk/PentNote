@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -300,25 +301,15 @@ def resolve_host_note_path(
     if default_path.exists() or not hosts_dir.exists():
         return default_path, None
 
-    target_cf = target.strip().casefold()
-    target_is_ip = _looks_like_ip(target)
-    known_ip_cf = known_ip.strip().casefold() if known_ip else ""
     merges: list[Path] = []
     possible: list[str] = []
     for note_path in sorted(hosts_dir.glob("*.md")):
         identity = _host_note_identity(note_path.read_text(encoding="utf-8"))
         ip_cf = identity["ip"].strip().casefold()
-        name_ids = {
-            value.casefold()
-            for value in (identity["hostname"], *identity["aliases"])
-            if value
-        }
-        ip_match = bool(ip_cf) and target_is_ip and target_cf == ip_cf
-        name_match = target_cf in name_ids
-        corroborated = name_match and bool(known_ip_cf) and known_ip_cf == ip_cf
-        if ip_match or corroborated:
+        name_ids = _note_name_ids(identity)
+        if _confirmed_host_link(target, ip_cf, name_ids, known_ip=known_ip):
             merges.append(note_path)
-        elif name_match or _shares_first_label(target, identity["hostname"]):
+        elif _possible_host_link(target, name_ids, identity["hostname"]):
             possible.append(identity["hostname"] or identity["ip"] or note_path.stem)
 
     if len(merges) == 1:
@@ -343,6 +334,139 @@ def _host_note_identity(text: str) -> dict[str, Any]:
         "hostname": _frontmatter_scalar(text, "hostname"),
         "aliases": _also_known_as(text),
     }
+
+
+def _note_name_ids(identity: dict[str, Any]) -> set[str]:
+    """Case-folded set of a note's name identifiers (hostname + aliases)."""
+
+    return {
+        value.casefold()
+        for value in (identity["hostname"], *identity["aliases"])
+        if value
+    }
+
+
+def _confirmed_host_link(
+    target: str,
+    note_ip_cf: str,
+    note_name_ids: set[str],
+    *,
+    known_ip: str | None = None,
+) -> bool:
+    """True when ``target`` has a **data-backed link** to a host note's identity.
+
+    A confirmed link authorizes treating the incoming write as the same host:
+    either ``target`` is an IP equal to the note's recorded IP (one IP is one
+    host within an engagement), or it matches one of the note's names *and* the
+    caller-supplied ``known_ip`` equals the note's IP (the incoming side asserts
+    the same IP<->name pairing a tool observed). Hostname string-equality alone
+    never qualifies. This is the single criterion both the auto-merge rule and
+    the pre-fix-merge detector rely on, so the two cannot drift apart.
+    """
+
+    target_cf = target.strip().casefold()
+    known_ip_cf = known_ip.strip().casefold() if known_ip else ""
+    ip_match = bool(note_ip_cf) and _looks_like_ip(target) and target_cf == note_ip_cf
+    name_match = target_cf in note_name_ids
+    corroborated = name_match and bool(known_ip_cf) and known_ip_cf == note_ip_cf
+    return ip_match or corroborated
+
+
+def _possible_host_link(
+    target: str, note_name_ids: set[str], note_hostname: str
+) -> bool:
+    """True when ``target`` *might* be a note's host but lacks a data-backed link.
+
+    A name/alias string match, or a shared first DNS label, is enough to suspect
+    the same host and warn -- never enough to auto-merge. Callers must check
+    :func:`_confirmed_host_link` first; a possible-but-not-confirmed link is
+    exactly the ambiguity that the pre-1.1.0 rule wrongly auto-merged on.
+    """
+
+    return target.strip().casefold() in note_name_ids or _shares_first_label(
+        target, note_hostname
+    )
+
+
+@dataclass(frozen=True)
+class SuspectedHostMerge:
+    """A host note whose identity collides by name with another, without an IP link."""
+
+    note_path: Path
+    ip: str
+    hostname: str
+    collisions: tuple[str, ...]
+    confidence: str
+
+
+def find_suspected_host_merges(notes_dir: Path) -> list[SuspectedHostMerge]:
+    """Flag host notes that the pre-1.1.0 string-equality rule could have merged.
+
+    Before 1.1.0, a bare-name write (``note <name>``, an unsupported-tool record,
+    or a Ghost Log apply) auto-merged onto any existing note whose recorded name
+    it case-insensitively matched -- even across two genuinely distinct hosts.
+
+    This reports, **read-only**, every host note whose name identifiers collide
+    with another note's while their IPs differ: a *possible* link with no
+    *confirmed* (IP) link, judged by the exact same criterion the auto-merge rule
+    uses (:func:`_confirmed_host_link` / :func:`_possible_host_link`). Those are
+    the pairs where an old bare-name write could have landed on the wrong note.
+
+    Confidence is ``"high"`` when the notes share an exact name/alias (the string
+    the old rule matched on), ``"low"`` when they only share a first DNS label
+    (which the old rule warned about but did not merge). Nothing is modified;
+    conflations must be reviewed and split by hand -- see the migration notes.
+    """
+
+    hosts_dir = notes_dir / "hosts"
+    if not hosts_dir.exists():
+        return []
+
+    notes: list[tuple[Path, dict[str, Any], str, set[str]]] = []
+    for note_path in sorted(hosts_dir.glob("*.md")):
+        identity = _host_note_identity(note_path.read_text(encoding="utf-8"))
+        notes.append(
+            (
+                note_path,
+                identity,
+                identity["ip"].strip().casefold(),
+                _note_name_ids(identity),
+            )
+        )
+
+    flagged: list[SuspectedHostMerge] = []
+    for path_a, id_a, ip_a, names_a in notes:
+        collisions: list[str] = []
+        confidence = "low"
+        for path_b, id_b, ip_b, names_b in notes:
+            if path_b == path_a:
+                continue
+            b_targets = [t for t in (id_b["hostname"], *id_b["aliases"]) if t]
+            # Frame B's identifiers as incoming writes against A: a NAME link with
+            # no data-backed IP link is exactly the pre-fix mis-merge condition.
+            linked = [
+                t
+                for t in b_targets
+                if _possible_host_link(t, names_a, id_a["hostname"])
+                and not _confirmed_host_link(t, ip_a, names_a, known_ip=ip_b)
+            ]
+            if not linked:
+                continue
+            if names_a & names_b:
+                confidence = "high"
+            other = id_b["hostname"] or id_b["ip"] or path_b.stem
+            collisions.append(f"{other} ({path_b.name})")
+        if collisions:
+            flagged.append(
+                SuspectedHostMerge(
+                    note_path=path_a,
+                    ip=id_a["ip"],
+                    hostname=id_a["hostname"],
+                    collisions=tuple(sorted(collisions)),
+                    confidence=confidence,
+                )
+            )
+    return flagged
 
 
 def _frontmatter_scalar(text: str, key: str) -> str:
