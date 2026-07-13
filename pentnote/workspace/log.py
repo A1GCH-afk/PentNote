@@ -17,7 +17,12 @@ from pentnote.ghostlog.daemon import (
     stop_daemon,
 )
 from pentnote.models import WorkspaceLog
-from pentnote.workspace.store import active_workspace, append_timeline_entry, now_iso
+from pentnote.workspace.store import (
+    WorkspaceStore,
+    active_workspace,
+    append_timeline_entry,
+    now_iso,
+)
 
 console = Console()
 
@@ -213,7 +218,7 @@ def list_log(host: str | None, tag: str | None, today: bool) -> None:
 
 def find_logs_for_finding(
     hash_or_title: str,
-    store,
+    store: WorkspaceStore,
 ) -> list[WorkspaceLog]:
     """Return Ghost Log entries linked to a finding hash or title fragment."""
 
@@ -247,7 +252,7 @@ def _parse_log_args(args: list[str]) -> tuple[str, str | None, list[str]]:
     return " ".join(message_parts).strip(), host, tags
 
 
-def _print_status(state: dict, store=None) -> None:
+def _print_status(state: dict, store: WorkspaceStore | None = None) -> None:
     session = state.get("session") or {}
     console.print("Ghost Log Status")
     console.print("─────────────────────────────────────────")
@@ -292,7 +297,7 @@ def _print_status(state: dict, store=None) -> None:
         _print_quality_stats(store)
 
 
-def _print_review_queue(store) -> None:
+def _print_review_queue(store: WorkspaceStore) -> None:
     items = _active_review_items(store)
     console.print(f"Pending Review — {len(items)} items")
     console.print("──────────────────────────────")
@@ -317,7 +322,7 @@ def _print_review_queue(store) -> None:
         console.print("   [a]ccept  [r]eject  [e]dit  [s]kip")
 
 
-def _active_review_items(store) -> list[dict]:
+def _active_review_items(store: WorkspaceStore) -> list[dict]:
     data = store.load()
     now = _now()
     active_items = []
@@ -331,7 +336,7 @@ def _active_review_items(store) -> list[dict]:
     return active_items
 
 
-def _print_quality_stats(store) -> None:
+def _print_quality_stats(store: WorkspaceStore) -> None:
     stats = dict(store.load().get("quality_stats", {}))
     written = int(stats.get("written") or 0)
     queued = int(stats.get("queued") or 0)

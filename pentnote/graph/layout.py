@@ -8,6 +8,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import networkx as nx
+
     from pentnote.graph.bloodhound import DomainGraph
 
 CoordinateMap = dict[str, tuple[int, int]]
@@ -263,7 +265,7 @@ def _networkx_positions(
 
     import networkx as nx
 
-    nx_graph = nx.DiGraph()
+    nx_graph: nx.DiGraph = nx.DiGraph()
     nx_graph.add_nodes_from(node_ids)
     nx_graph.add_edges_from(graph_edges)
 
