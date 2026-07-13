@@ -59,3 +59,28 @@ When picking this up:
    common `object`-typing root), preferring real annotations over
    `# type: ignore`. Use targeted `# type: ignore[code]` only where a third
    party leaves no clean alternative.
+
+## `known_ip` host-identity corroboration has no production caller
+
+**Status:** Deferred backlog item, introduced with the v1.1.0 host-identity fix.
+
+`resolve_host_note_path(notes_dir, target, *, known_ip=None)` auto-merges an
+incoming write into an existing host note on either of two data-backed signals:
+an IP-network identity match, or a hostname/alias match **corroborated** by a
+caller-supplied `known_ip` equal to the note's recorded IP.
+
+As of v1.1.0 **no production caller supplies `known_ip`** — all three callers
+(`note`, the unsupported-tool recorder, and Ghost Log apply) pass the default
+`None`, so only the IP-network-identity branch ever fires. The
+corroborated-hostname branch is wired but unreached: in practice
+**hostname-based identity resolution does not happen at all today**. A bare-name
+write that can't be matched by IP always lands on a fresh note (plus a warning),
+never merges. That is the intended safe tradeoff for now — "a duplicate beats a
+silent wrong-merge" — but the corroboration path is effectively dead code until a
+caller feeds it.
+
+**Future work:** wire `known_ip` to a real, tool-observed signal — a DNS PTR/A
+capture, a certipy/TLS certificate CN/SAN, or an explicit tool-reported
+hostname→IP mapping — so the hostname-match branch becomes reachable and
+name-based references can merge safely when corroborated. Until then the
+hostname-match path stays inert by design.

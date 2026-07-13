@@ -479,6 +479,21 @@ pentnote status --health --fix --dry-run     # preview without changing files
 pentnote status --health --fix --include-low # also clean up low-severity issues (e.g. orphaned notes)
 ```
 
+`--check-merges` adds a separate **read-only** audit (it never edits or splits a
+note):
+
+```bash
+pentnote status --health --check-merges      # flag name-colliding host notes (read-only)
+```
+
+It flags name collisions between *separate* host notes — two notes that share a
+host name but sit at different IPs with no confirmed link — so you can review and
+split them by hand. It does **not** recover a host that was already fully merged
+into another note under the pre-1.1.0 rule: once two hosts' data is combined into
+one note there is no trace left on disk to detect it, and that case needs a manual
+review of the note's contents. See the `CHANGELOG.md` [1.1.0] entry for the
+identity-merge change this audits.
+
 If a parser doesn't recognize your input, force it explicitly rather than
 relying on auto-detection:
 

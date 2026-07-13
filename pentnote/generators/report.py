@@ -380,10 +380,6 @@ def _score_and_sort_findings(
     )
 
 
-def _count_severity(findings: list[Finding], severity: Severity) -> int:
-    return sum(1 for finding in findings if finding.severity == severity)
-
-
 def _legacy_summary(executive_summary: dict) -> dict[str, int]:
     return {
         "critical": executive_summary["critical_count"],
@@ -542,5 +538,6 @@ def _group_by_tool(findings: list[Finding]) -> dict[str, list[Finding]]:
 
 
 def redacted(value: object) -> str:
+    """Render a non-empty template value as the literal ``[REDACTED]`` marker."""
     text = str(value if value is not None else "")
     return "[REDACTED]" if text else text

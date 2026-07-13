@@ -127,30 +127,37 @@ class Engagement(PentNoteModel):
 
     @property
     def state_dir(self) -> Path:
+        """Directory holding PentNote's internal engagement state."""
         return self.root / ".pentnote"
 
     @property
     def notes_dir(self) -> Path:
+        """Directory holding generated host/finding notes."""
         return self.root / "notes"
 
     @property
     def reports_dir(self) -> Path:
+        """Directory holding generated reports."""
         return self.root / "reports"
 
     @property
     def raw_dir(self) -> Path:
+        """Directory holding raw captured tool output."""
         return self.root / "raw"
 
     @property
     def config_path(self) -> Path:
+        """Path to the engagement's shared config.json."""
         return self.state_dir / "config.json"
 
     @property
     def local_config_path(self) -> Path:
+        """Path to the engagement's machine-local local.json."""
         return self.state_dir / "local.json"
 
     @property
     def findings_path(self) -> Path:
+        """Path to the engagement's persisted findings.json."""
         return self.state_dir / "findings.json"
 
 

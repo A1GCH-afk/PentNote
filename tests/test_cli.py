@@ -108,20 +108,20 @@ def test_version_in_status_output() -> None:
         result = runner.invoke(main, ["status"])
 
     assert result.exit_code == 0, result.output
-    assert "PentNote v1.0.1" in result.output
+    assert "PentNote v1.1.0" in result.output
 
 
 def test_version_matches_pyproject() -> None:
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
 
-    assert pyproject["project"]["version"] == __version__ == "1.0.1"
+    assert pyproject["project"]["version"] == __version__ == "1.1.0"
 
 
 def test_version_flag_outputs_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.strip() == "pentnote 1.0.1"
+    assert result.output.strip() == "pentnote 1.1.0"
 
 
 def test_changelog_documents_current_release() -> None:
@@ -129,6 +129,7 @@ def test_changelog_documents_current_release() -> None:
 
     assert "## [1.0.0] - 2026-07-02" in changelog
     assert "Consolidated the CLI to 12 focused top-level commands." in changelog
+    assert "## [1.1.0] - 2026-07-13" in changelog
 
 
 def test_publish_workflow_requires_manual_confirmation() -> None:
@@ -810,6 +811,39 @@ def test_cli_status_uses_tables() -> None:
         assert "PentNote Status" in result.output
         assert "Severity Breakdown" in result.output
         assert "Credentials" in result.output
+
+
+def test_cli_status_check_merges_flags_and_clears() -> None:
+    runner = CliRunner()
+    host_a = (
+        "SMB  192.168.56.10  445  SRV01  "
+        "[*] Windows Server 2019 x64 (name:SRV01) (domain:LAB) (signing:False)\n"
+    )
+    host_b = (
+        "SMB  192.168.56.20  445  SRV01  "
+        "[*] Windows Server 2019 x64 (name:SRV01) (domain:LAB) (signing:False)\n"
+    )
+
+    with runner.isolated_filesystem():
+        runner.invoke(main, ["init", "Client_2026"])
+
+        # Clean vault: no name collisions -> check passes.
+        runner.invoke(main, ["parse", "-", "--tool", "cme"], input=host_a)
+        clean = runner.invoke(main, ["status", "--health", "--check-merges"])
+        assert clean.exit_code == 0, clean.output
+        assert "host-merge check: no name collisions" in clean.output
+
+        # A second, different host reusing the SRV01 name at another IP -> flagged.
+        runner.invoke(main, ["parse", "-", "--tool", "cme"], input=host_b)
+        flagged = runner.invoke(main, ["status", "--health", "--check-merges"])
+        assert flagged.exit_code == 0, flagged.output
+        assert "share a name with another host but no IP link" in flagged.output
+        assert "[HIGH]" in flagged.output
+        assert "Read-only" in flagged.output
+
+        # Default --health (without the flag) does not run the merge check.
+        plain = runner.invoke(main, ["status", "--health"])
+        assert "host-merge check" not in plain.output
 
 
 def test_cli_recursive_parse_and_error_paths() -> None:
