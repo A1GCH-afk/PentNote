@@ -10,6 +10,8 @@ from pentnote.ai.ollama import OLLAMA_TIMEOUT_SECONDS, OllamaError
 
 
 class ExtractedCredential(BaseModel):
+    """A credential as extracted from sanitized terminal text by the LLM."""
+
     username: str
     secret: str
     secret_type: str
@@ -18,6 +20,7 @@ class ExtractedCredential(BaseModel):
     @field_validator("secret_type")
     @classmethod
     def validate_secret_type(cls, value: str) -> str:
+        """Normalize secret_type, falling back to "plaintext" for unknown values."""
         allowed = {"plaintext", "ntlm", "kerberos"}
         normalized = value.casefold()
         if normalized not in allowed:
@@ -26,6 +29,8 @@ class ExtractedCredential(BaseModel):
 
 
 class ExtractedFinding(BaseModel):
+    """A finding as extracted from sanitized terminal text by the LLM."""
+
     title: str
     severity: str
     target: str | None = None
@@ -34,6 +39,7 @@ class ExtractedFinding(BaseModel):
     @field_validator("severity")
     @classmethod
     def validate_severity(cls, value: str) -> str:
+        """Normalize severity, falling back to "info" for unknown values."""
         allowed = {"info", "low", "medium", "high", "critical"}
         normalized = value.casefold()
         if normalized not in allowed:
@@ -42,6 +48,8 @@ class ExtractedFinding(BaseModel):
 
 
 class GhostLogExtraction(BaseModel):
+    """Structured result of an Ollama extraction pass over Ghost Log text."""
+
     credentials: list[ExtractedCredential] = Field(default_factory=list)
     findings: list[ExtractedFinding] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

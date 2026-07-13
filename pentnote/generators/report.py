@@ -542,5 +542,6 @@ def _group_by_tool(findings: list[Finding]) -> dict[str, list[Finding]]:
 
 
 def redacted(value: object) -> str:
+    """Render a non-empty template value as the literal ``[REDACTED]`` marker."""
     text = str(value if value is not None else "")
     return "[REDACTED]" if text else text
