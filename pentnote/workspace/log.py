@@ -31,6 +31,7 @@ class LogGroup(click.Group):
     """Group that treats non-command arguments as a log message."""
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Route a bare (non-subcommand, non-option) argument list as a log message."""
         if (
             args
             and args[0] not in self.commands
@@ -179,6 +180,7 @@ def log(
 
 
 def add_log(message: str, host: str | None = None, tags: tuple[str, ...] = ()) -> None:
+    """Append a Ghost Log entry to the active workspace and its timeline."""
     engagement, store = active_workspace()
     entry = {
         "message": message,
