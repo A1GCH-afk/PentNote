@@ -416,6 +416,12 @@ def find_suspected_host_merges(notes_dir: Path) -> list[SuspectedHostMerge]:
     the old rule matched on), ``"low"`` when they only share a first DNS label
     (which the old rule warned about but did not merge). Nothing is modified;
     conflations must be reviewed and split by hand -- see the migration notes.
+
+    Scope limit: this only sees pairs where *both* hosts still have their own
+    note. A host that was **fully absorbed** into another note under the old rule
+    leaves a single file on disk, so there is no second note to collide with and
+    it cannot be flagged here. That case is not recoverable from disk state and
+    needs a manual review of the note's contents.
     """
 
     hosts_dir = notes_dir / "hosts"
