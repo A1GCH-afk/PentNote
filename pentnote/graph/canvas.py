@@ -15,7 +15,7 @@ from pentnote.graph.bloodhound import (
     GraphNode,
     load_bloodhound_graph,
 )
-from pentnote.graph.layout import LayoutMode, compute_layout
+from pentnote.graph.layout import LayoutMode, _truthy, compute_layout
 from pentnote.workspace.store import slugify
 
 NODE_WIDTH = 360
@@ -434,12 +434,6 @@ def _node_role(node: GraphNode) -> str:
 def _is_domain_admin(node: GraphNode) -> bool:
     principal = _username(node.name).replace("-", " ").casefold()
     return "domain admins" in principal
-
-
-def _truthy(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value).casefold() in {"1", "true", "yes"}
 
 
 def _edge_sides(
