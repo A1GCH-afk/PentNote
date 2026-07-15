@@ -32,6 +32,7 @@ from pentnote.parsers.v2.powerview import PowerViewParser
 from pentnote.parsers.v2.responder import ResponderParser
 from pentnote.parsers.v2.rubeus import RubeusParser
 from pentnote.parsers.v2.seatbelt import SeatbeltParser
+from pentnote.parsers.v2.smbclient import SmbClientParser
 from pentnote.parsers.v2.sqlmap import SQLMapParser
 from pentnote.parsers.v15.bloodhound import BloodHoundParser
 from pentnote.parsers.v15.feroxbuster import FeroxbusterParser
@@ -58,6 +59,8 @@ RESPONDER_OUTPUT = (FIXTURES / "responder_sample.log").read_text()
 POWERVIEW_OUTPUT = (FIXTURES / "powerview_sample.txt").read_text()
 SEATBELT_OUTPUT = (FIXTURES / "seatbelt_sample.txt").read_text()
 LAZAGNE_OUTPUT = (FIXTURES / "lazagne_sample.txt").read_text()
+SMBCLIENT_SHARES = (FIXTURES / "smbclient_shares.txt").read_text()
+SMBCLIENT_DIR = (FIXTURES / "smbclient_dir.txt").read_text()
 
 
 def _nmap_host(xml: str):
@@ -1034,6 +1037,58 @@ def test_enum4linux_null_session_mitre_t1069() -> None:
     ttps = [m.technique_id for f in result.findings for m in f.mitre_matches]
 
     assert "T1069.002" in ttps
+
+
+def test_smbclient_can_parse_share_listing() -> None:
+    assert SmbClientParser().can_parse(SMBCLIENT_SHARES) > 0.9
+
+
+def test_smbclient_detected_before_universal() -> None:
+    assert detect_parser(SMBCLIENT_SHARES).parser.tool_name == "smbclient"
+    assert detect_parser(SMBCLIENT_DIR).parser.tool_name == "smbclient"
+
+
+def test_smbclient_no_false_positive_on_crackmapexec() -> None:
+    assert SmbClientParser().can_parse((FIXTURES / "cme_sample.txt").read_text()) == 0.0
+
+
+def test_smbclient_extracts_shares_and_flags_non_default() -> None:
+    result = SmbClientParser().parse(SMBCLIENT_SHARES)
+    shares = {obj.name: obj.properties for obj in result.domain_objects}
+
+    assert shares["ADMIN$"]["default"] is True
+    assert shares["IPC$"]["type"] == "IPC"
+    assert shares["Reports"]["default"] is False
+    assert shares["Reports"]["comment"] == "Weekly report drop"
+
+
+def test_smbclient_share_enumeration_finding_t1135() -> None:
+    result = SmbClientParser().parse(SMBCLIENT_SHARES)
+    finding = next(f for f in result.findings if f.title.startswith("SMB Shares"))
+
+    assert finding.severity is Severity.LOW
+    assert "T1135" in {m.technique_id for m in finding.mitre_matches}
+    # The non-default shares are surfaced for follow-up, not the admin shares.
+    assert "Logs" in finding.next_steps[0]
+    assert "Reports" in finding.next_steps[0]
+    assert "ADMIN$" not in finding.next_steps[0]
+    assert result.hosts[0].ip == "10.10.11.174"
+
+
+def test_smbclient_strips_terminal_noise_and_extracts_files() -> None:
+    # The interactive capture carries bracketed-paste `\x1b[?2004h` noise the
+    # base cleaner leaves behind; the parser must strip it and still list files.
+    assert "\x1b" in SMBCLIENT_DIR  # fixture really does carry the escape bytes
+
+    result = SmbClientParser().parse(SMBCLIENT_DIR)
+    finding = next(f for f in result.findings if "Contents" in f.title)
+
+    assert "Reports" in finding.title
+    assert "T1039" in {m.technique_id for m in finding.mitre_matches}
+    assert "\x1b" not in finding.evidence
+    assert "Q1_Report.log" in finding.evidence
+    # `.` and `..` directory entries are not counted as files.
+    assert "(3 file(s))" in finding.title
 
 
 def test_responder_can_parse_ntlmv2_output() -> None:
