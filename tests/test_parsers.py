@@ -486,6 +486,31 @@ def test_universal_no_finding_under_threshold() -> None:
     assert result.findings == []
 
 
+def test_universal_hash_extraction_does_not_split_sha256() -> None:
+    # Regression: a single 64-char SHA-256 must be captured whole, not chopped
+    # into two 32-char halves (bloodyAD "sha256 of RSA key" + trailing NT hash).
+    from pentnote.parsers.universal import _HASH, _scan
+
+    content = (
+        "sha256 of RSA key: "
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+        "NT: ffeeddccbbaa99887766554433221100"
+    )
+
+    assert _scan(_HASH, content) == [
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "ffeeddccbbaa99887766554433221100",
+    ]
+
+
+def test_universal_ignores_non_digest_length_hex_run() -> None:
+    # An over-length hex blob (65 chars) is not a recognised digest and must not
+    # yield a spurious 32/40/64-char sub-match at an offset.
+    from pentnote.parsers.universal import _HASH, _scan
+
+    assert _scan(_HASH, "blob " + "a" * 65 + " end") == []
+
+
 def test_safe_parse_never_raises() -> None:
     class BrokenParser(AbstractParser):
         tool_name = "broken"
