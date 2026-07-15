@@ -391,7 +391,7 @@ def test_report_includes_client_name(tmp_path: Path) -> None:
         engagement=engagement,
     )
 
-    assert "Client:** ACME Corporation" in paths[0].read_text(encoding="utf-8")
+    assert "| Client | ACME Corporation |" in paths[0].read_text(encoding="utf-8")
 
 
 def test_report_includes_engagement_type(tmp_path: Path) -> None:
@@ -412,8 +412,8 @@ def test_report_includes_engagement_type(tmp_path: Path) -> None:
     )
     report_text = paths[0].read_text(encoding="utf-8")
 
-    assert "Engagement type:** Internal Active Directory" in report_text
-    assert "Start date:** May 3, 2026" in report_text
+    assert "| Engagement Type | Internal Active Directory |" in report_text
+    assert "| Start Date | May 3, 2026 |" in report_text
 
 
 def test_status_shows_engagement_type(tmp_path: Path) -> None:

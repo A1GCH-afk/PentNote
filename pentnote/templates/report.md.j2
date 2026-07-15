@@ -4,16 +4,22 @@ engagement: {{ executive_summary.engagement_name }}
 date: {{ iso_timestamp }}
 ---
 
-# PentNote Report - {{ executive_summary.engagement_name }}
+# Penetration Test Report
+## {{ executive_summary.engagement_name }}
+
+**Classification:** Confidential
+**Report date:** {{ iso_timestamp }}
+
+| Field | Value |
+| --- | --- |
+{% for label, value in metadata_rows -%}
+| {{ label }} | {{ value }} |
+{% endfor %}
+
+---
 
 ## Executive Summary
-{{ executive_summary.total_findings }} findings recorded across {{ executive_summary.total_hosts }} host(s).
-
-**Client:** {{ executive_summary.client_name or "N/A" }}
-**Engagement type:** {{ executive_summary.engagement_type_label }}
-**Scope:** {{ executive_summary.scope | join(", ") if executive_summary.scope else "N/A" }}
-**Operator:** {{ executive_summary.operator or "N/A" }}
-**Start date:** {{ executive_summary.start_date_label or executive_summary.start_date or "N/A" }}
+{{ executive_narrative }}
 
 | Severity | Count |
 | --- | ---: |
@@ -40,10 +46,12 @@ None recorded.
 {% endfor %}
 
 ## Remediation Roadmap
+Prioritized by risk score; highest-impact remediation first.
+
 | Priority | Finding | Severity | Effort | D3FEND | Recommendation |
 | ---: | --- | --- | --- | --- | --- |
 {% for item in remediation_items -%}
-| {{ item.priority }} | {{ item.finding_title }} | {{ item.severity.value|title }} | {{ item.effort }} | {{ item.d3fend_ids | join(", ") if item.d3fend_ids else "N/A" }} | {{ item.recommendation }} |
+| {{ item.priority }} | {{ item.finding_title }} | {{ item.severity.value|title }} | {{ item.effort }} | {{ item.d3fend_ids | join(", ") if item.d3fend_ids else "—" }} | {{ item.recommendation }} |
 {% else -%}
 | N/A | N/A | N/A | N/A | N/A | N/A |
 {% endfor %}
@@ -85,10 +93,12 @@ None recorded.
 ## Findings
 {% for finding in findings -%}
 ### {{ finding.title }}
-- Severity: {{ finding.severity.value }}
-- Risk Score: {{ "%.2f"|format(finding.risk_score.total if finding.risk_score else 0) }}
-- Hosts: {{ finding.affected_hosts | join(", ") if finding.affected_hosts else "N/A" }}
-- MITRE: {{ finding.mitre_matches | map(attribute="technique_id") | join(", ") if finding.mitre_matches else "N/A" }}
+| Attribute | Value |
+| --- | --- |
+| Severity | {{ finding.severity.value|title }} |
+| Risk Score | {{ "%.2f"|format(finding.risk_score.total if finding.risk_score else 0) }} |
+| Affected Assets | {{ finding_hosts[finding.hash] | join(", ") if finding_hosts[finding.hash] else "—" }} |
+| MITRE ATT&CK | {% if finding.mitre_matches %}{% for m in finding.mitre_matches %}{{ m.technique_id }}{% if m.technique_name and m.technique_name != m.technique_id %} ({{ m.technique_name }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %} |
 
 #### Recommendations
 {% for step in finding.next_steps -%}
@@ -96,33 +106,22 @@ None recorded.
 {% else -%}
 - Validate the finding and document remediation with the asset owner.
 {% endfor %}
+{% if with_defenses and defense_rows[finding.hash] %}
+#### D3FEND Countermeasures
+{% for defense in defense_rows[finding.hash] -%}
+- **{{ defense.defend_id }}** ({{ defense.technique_id }}) — {{ defense.description }}
+{% endfor %}
+{% endif %}
 
 {% else -%}
 None recorded.
 {% endfor %}
 
-## Recommendations
-{% if with_defenses %}
-| Finding | Technique | D3FEND ID | Description |
-| --- | --- | --- | --- |
-{% for finding in findings -%}
-{% for defense in defense_rows[finding.hash] -%}
-| {{ finding.title }} | {{ defense.technique_id }} | {{ defense.defend_id }} | {{ defense.description }} |
-{% else -%}
-| {{ finding.title }} | N/A | N/A | Validate remediation with the asset owner. |
-{% endfor %}
-{% endfor %}
-{% else %}
-- Run with `--with-defenses` to include D3FEND countermeasure mappings.
-{% endif %}
-
 ## Evidence Appendix
 {% for finding in findings -%}
 ### {{ finding.title }}
 ```text
-{% if redact %}{{ redacted(finding.evidence) }}{% else %}
-{{ finding.evidence }}
-{% endif %}
+{{ redacted(finding.evidence) if redact else finding.evidence }}
 ```
 
 {% else -%}
@@ -136,5 +135,4 @@ None recorded.
 None recorded.
 {% endfor %}
 
-## Navigator Layer Reference
-Generate the Navigator layer with `pentnote mitre export --format navigator`.
+Generate the ATT&CK Navigator layer with `pentnote mitre export --format navigator`.

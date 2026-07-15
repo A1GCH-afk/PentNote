@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 
 from pentnote.generators.markdown import _assign_target_group, template_env
@@ -19,6 +20,68 @@ from pentnote.models import (
     RemediationItem,
     Severity,
 )
+
+
+@lru_cache(maxsize=1)
+def _tool_pseudo_hosts() -> frozenset[str]:
+    """Names that parsers use as a stand-in host (e.g. ``evil-winrm``).
+
+    These are tool identifiers, not assets, and must never appear in the
+    asset inventory or a finding's "affected assets" list.
+    """
+
+    from pentnote.parsers.detector import available_parsers
+
+    names: set[str] = set()
+    for parser in available_parsers(include_plugins=False):
+        names.add(parser.tool_name.casefold())
+        names.update(alias.casefold() for alias in parser.aliases)
+    return frozenset(names)
+
+
+def _real_hosts(hosts: object) -> list[str]:
+    """Filter tool pseudo-hosts out of an iterable of host strings."""
+
+    pseudo = _tool_pseudo_hosts()
+    kept: list[str] = []
+    for host in hosts if isinstance(hosts, (list, set, tuple)) else []:
+        text = str(host).strip()
+        if text and text.casefold() not in pseudo and text not in kept:
+            kept.append(text)
+    return sorted(kept)
+
+
+def build_executive_narrative(executive_summary: dict) -> str:
+    """Compose a short, data-driven executive-summary paragraph."""
+
+    total = executive_summary["total_findings"]
+    if total == 0:
+        return (
+            "No findings were recorded for this engagement. Re-run the relevant "
+            "tooling or broaden scope to validate coverage before sign-off."
+        )
+    hosts = executive_summary["total_hosts"]
+    host_phrase = f"{hosts} host" + ("s" if hosts != 1 else "")
+    finding_phrase = f"{total} finding" + ("s" if total != 1 else "")
+
+    severity_bits = []
+    if executive_summary["critical_count"]:
+        severity_bits.append(f"{executive_summary['critical_count']} critical")
+    if executive_summary["high_count"]:
+        severity_bits.append(f"{executive_summary['high_count']} high-severity")
+    severity_text = (
+        ", including " + " and ".join(severity_bits) if severity_bits else ""
+    )
+
+    top_risks = executive_summary["top_risks"]
+    top_text = (
+        f' The most significant risk is "{top_risks[0].title}".' if top_risks else ""
+    )
+
+    return (
+        f"This assessment recorded {finding_phrase} across {host_phrase}"
+        f"{severity_text}.{top_text}"
+    )
 
 
 def write_report(
@@ -100,6 +163,12 @@ def write_report(
                 top_risks=top_risks,
                 tactic_bars=tactic_bars,
                 findings_by_tool=findings_by_tool,
+                executive_narrative=build_executive_narrative(executive_summary),
+                finding_hosts={
+                    finding.hash: _real_hosts(finding.affected_hosts)
+                    for finding in sorted_findings
+                },
+                metadata_rows=_engagement_metadata_rows(executive_summary),
                 remediation_items=remediation_items,
                 remediated_findings=remediated_findings,
                 remediated_count=len(remediated_findings),
@@ -146,11 +215,11 @@ def build_executive_summary(
             finding.title.casefold(),
         ),
     )[:5]
-    affected_hosts = sorted(
+    affected_hosts = _real_hosts(
         {host for finding in findings for host in finding.affected_hosts}
     )
     if not affected_hosts:
-        affected_hosts = sorted({host.ip for host in hosts})
+        affected_hosts = _real_hosts({host.ip for host in hosts})
     return {
         "engagement_name": engagement.name,
         "client_name": engagement.client_name,
@@ -395,10 +464,33 @@ def _legacy_summary(executive_summary: dict) -> dict[str, int]:
 def _hosts_from_findings(findings: list[Finding]) -> list[Host]:
     return [
         Host(ip=host)
-        for host in sorted(
+        for host in _real_hosts(
             {host for finding in findings for host in finding.affected_hosts}
         )
     ]
+
+
+def _engagement_metadata_rows(executive_summary: dict) -> list[tuple[str, str]]:
+    """Return only the engagement metadata fields that are actually populated.
+
+    A client-facing report should not be littered with ``N/A`` rows; the
+    engagement type is always meaningful, the rest appear only when set.
+    """
+
+    rows: list[tuple[str, str]] = [
+        ("Engagement Type", executive_summary["engagement_type_label"])
+    ]
+    optional = (
+        ("Client", executive_summary["client_name"]),
+        ("Scope", ", ".join(executive_summary["scope"])),
+        ("Operator", executive_summary["operator"]),
+        (
+            "Start Date",
+            executive_summary["start_date_label"] or executive_summary["start_date"],
+        ),
+    )
+    rows.extend((label, str(value)) for label, value in optional if value)
+    return rows
 
 
 def _affected_asset_rows(
@@ -483,12 +575,48 @@ def _generate_recommendation(finding: Finding) -> str:
             "Enable SMB signing via Group Policy: "
             "Network security: Digitally sign communications."
         ),
+        "shadow credentials": (
+            "Reset the affected account's password/keys, then audit and restrict "
+            "write access to msDS-KeyCredentialLink (GenericWrite/GenericAll)."
+        ),
         "kerberoastable": (
             "Use strong passwords (25+ chars) for service accounts. "
             "Consider Group Managed Service Accounts (gMSA)."
         ),
+        "valid credential": (
+            "Rotate the exposed credential, enforce a strong password policy with "
+            "MFA, and investigate reuse across other systems."
+        ),
         "ntlm hash": (
-            "Enforce password rotation. " "Enable Protected Users security group."
+            "Enforce password rotation. Enable the Protected Users security group."
+        ),
+        "hash material": (
+            "Rotate the exposed secret and restrict where credential material is "
+            "cached; enable the Protected Users security group."
+        ),
+        "share contents": (
+            "Remove sensitive data from broadly readable shares and apply "
+            "least-privilege NTFS/share ACLs."
+        ),
+        "shares enumerated": (
+            "Restrict share permissions to least privilege and remove non-default "
+            "shares that expose sensitive data."
+        ),
+        "dangerous windows privileges": (
+            "Remove unnecessary privileged token rights (SeImpersonate, SeBackup, "
+            "SeDebug) from non-administrative accounts."
+        ),
+        "winrm session": (
+            "Restrict WinRM/PSRemoting to hardened jump hosts and privileged "
+            "administrators; monitor ports 5985/5986."
+        ),
+        "domain users enumerated": (
+            "Limit low-privilege LDAP/RPC enumeration and monitor for "
+            "reconnaissance against the directory."
+        ),
+        "domain groups enumerated": (
+            "Limit low-privilege LDAP/RPC enumeration and monitor for "
+            "reconnaissance against the directory."
         ),
         "adcs esc": ("Review AD CS template permissions. Restrict enrollment rights."),
         "smb relay": ("Enable SMB signing and LDAP signing. Disable LLMNR and NBT-NS."),
@@ -497,12 +625,10 @@ def _generate_recommendation(finding: Finding) -> str:
     for key, recommendation in recommendations.items():
         if key in title_lower:
             return recommendation
-    d3fend_ids = _d3fend_ids(finding)
-    if d3fend_ids:
-        return "Review and remediate based on D3FEND guidance: " + ", ".join(
-            d3fend_ids[:3]
-        )
-    return "Validate remediation with the asset owner."
+    return (
+        "Validate the finding with the asset owner and apply least-privilege "
+        "and monitoring controls to mitigate it."
+    )
 
 
 def _estimate_effort(finding: Finding) -> str:
