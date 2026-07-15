@@ -20,6 +20,7 @@ from pentnote.parsers.v1.nmap import (
     _parse_os_from_cpe,
     _parse_os_from_service_info,
 )
+from pentnote.parsers.v2.bloodyad import BloodyADParser
 from pentnote.parsers.v2.certipy import CertipyParser
 from pentnote.parsers.v2.enum4linux import Enum4linuxParser
 from pentnote.parsers.v2.evilwinrm import EvilWinRMParser
@@ -61,6 +62,7 @@ SEATBELT_OUTPUT = (FIXTURES / "seatbelt_sample.txt").read_text()
 LAZAGNE_OUTPUT = (FIXTURES / "lazagne_sample.txt").read_text()
 SMBCLIENT_SHARES = (FIXTURES / "smbclient_shares.txt").read_text()
 SMBCLIENT_DIR = (FIXTURES / "smbclient_dir.txt").read_text()
+BLOODYAD_SHADOWCREDS = (FIXTURES / "bloodyad_shadowcreds.txt").read_text()
 
 
 def _nmap_host(xml: str):
@@ -1089,6 +1091,58 @@ def test_smbclient_strips_terminal_noise_and_extracts_files() -> None:
     assert "Q1_Report.log" in finding.evidence
     # `.` and `..` directory entries are not counted as files.
     assert "(3 file(s))" in finding.title
+
+
+def test_bloodyad_can_parse() -> None:
+    assert BloodyADParser().can_parse(BLOODYAD_SHADOWCREDS) > 0.9
+
+
+def test_bloodyad_detected_before_universal() -> None:
+    assert detect_parser(BLOODYAD_SHADOWCREDS).parser.tool_name == "bloodyad"
+
+
+def test_bloodyad_no_false_positive_on_crackmapexec() -> None:
+    assert BloodyADParser().can_parse((FIXTURES / "cme_sample.txt").read_text()) == 0.0
+
+
+def test_bloodyad_recovers_nt_hash_as_single_credential() -> None:
+    result = BloodyADParser().parse(BLOODYAD_SHADOWCREDS)
+
+    # The core bug fix: exactly ONE credential (the NT hash), not three (the
+    # 64-char RSA-key sha256 must not be split into two 32-char halves).
+    assert len(result.credentials) == 1
+    cred = result.credentials[0]
+    assert cred.username == "gmsa_svc$"
+    assert cred.secret == "31d6cfe0d16ae931b73c59d7e0c089c0"
+    assert cred.secret_type == "ntlm"
+    assert cred.domain == "north.local"
+
+
+def test_bloodyad_rsa_sha256_is_context_not_credential() -> None:
+    result = BloodyADParser().parse(BLOODYAD_SHADOWCREDS)
+    sha = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+
+    # The RSA-key fingerprint is never emitted as credential material...
+    assert all(cred.secret != sha for cred in result.credentials)
+    # ...and its 32-char halves never appear as hashes anywhere.
+    assert all(
+        c.secret != "aabbccddeeff00112233445566778899" for c in result.credentials
+    )
+    # ...but it is preserved as finding context.
+    finding = result.findings[0]
+    assert sha in finding.evidence
+
+
+def test_bloodyad_shadow_credentials_finding() -> None:
+    result = BloodyADParser().parse(BLOODYAD_SHADOWCREDS)
+    finding = result.findings[0]
+
+    assert "gmsa_svc$" in finding.title
+    assert finding.severity is Severity.HIGH
+    ttps = {m.technique_id for m in finding.mitre_matches}
+    assert {"T1556", "T1550.003"} <= ttps
+    # The stored TGT is surfaced for Pass-the-Ticket.
+    assert any("gmsa_svc.ccache" in step for step in finding.next_steps)
 
 
 def test_responder_can_parse_ntlmv2_output() -> None:

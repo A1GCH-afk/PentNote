@@ -13,6 +13,7 @@ from pentnote.parsers.universal import UniversalParser
 from pentnote.parsers.v1.crackmapexec import CrackMapExecParser
 from pentnote.parsers.v1.impacket import SecretsDumpParser
 from pentnote.parsers.v1.nmap import NmapParser
+from pentnote.parsers.v2.bloodyad import BloodyADParser
 from pentnote.parsers.v2.certipy import CertipyParser
 from pentnote.parsers.v2.enum4linux import Enum4linuxParser
 from pentnote.parsers.v2.evilwinrm import EvilWinRMParser
@@ -60,6 +61,7 @@ BUILTIN_PARSERS: tuple[type[AbstractParser], ...] = (
     CertipyParser,
     MimikatzParser,
     Enum4linuxParser,
+    BloodyADParser,
     ResponderParser,
     WinPEASParser,
     LinPEASParser,

