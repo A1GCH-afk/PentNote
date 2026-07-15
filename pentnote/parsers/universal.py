@@ -10,11 +10,11 @@ from pyparsing import (
     OneOrMore,
     Optional,
     ParserElement,
+    Regex,
     Suppress,
     Word,
     alphanums,
     alphas,
-    hexnums,
     nums,
     one_of,
 )
@@ -24,6 +24,9 @@ from pentnote.models import Finding, Host, ParsedResult, Severity
 from pentnote.parsers.base import AbstractParser
 
 MIN_INDICATORS_TO_EMIT_FINDING = 3
+
+# Recognised digest lengths (hex chars): MD5/NTLM=32, SHA-1=40, SHA-256=64.
+_HASH_LENGTHS = (32, 40, 64)
 
 _OCTET = Word(nums, min=1, max=3)
 _IPV4 = Combine(_OCTET + "." + _OCTET + "." + _OCTET + "." + _OCTET)
@@ -35,7 +38,14 @@ _PORT_WORD = (
     + Optional(Suppress(":"))
     + Word(nums, min=1, max=5)("port")
 )
-_HASH = Word(hexnums, exact=32) | Word(hexnums, exact=40) | Word(hexnums, exact=64)
+# Match a *maximal* hex run (the look-arounds forbid an adjacent hex char on
+# either side), then accept it only when the whole run is a recognised digest
+# length. This prevents a 64-char SHA-256 from being chopped into two 32-char
+# halves — the old ``Word(hexnums, exact=32)`` alternation matched the first 32
+# chars of a longer run, emitting two bogus hashes for one real digest.
+_HASH = Regex(r"(?<![0-9a-fA-F])[0-9a-fA-F]+(?![0-9a-fA-F])").add_condition(
+    lambda tokens: len(tokens[0]) in _HASH_LENGTHS
+)
 _CVE = Combine(
     CaselessKeyword("CVE")
     + Literal("-")
