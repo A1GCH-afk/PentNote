@@ -157,7 +157,7 @@ def test_readme_describes_public_parser_count() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "Supported Parsers" in readme
-    assert "PentNote ships with 25 parser strategies" in readme
+    assert "PentNote ships with 27 parser strategies" in readme
     assert "WinPEAS" in readme
     assert "LinPEAS" in readme
 

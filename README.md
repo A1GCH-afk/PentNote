@@ -44,19 +44,19 @@ PentNote's four core capabilities:
 | Remediation roadmap | Yes | Manual | Partial |
 | Obsidian Canvas graphs | Yes | No | No |
 | Hashcat workflow support | Yes | Manual | Partial |
-| Built-in parsers | 25 | N/A | Varies |
+| Built-in parsers | 27 | N/A | Varies |
 | Open source | Yes | N/A | Varies |
 
 > **📸 Demo media coming soon** — *A screenshot/GIF showing the parse → notes → report workflow will be added in the next release.*
 
 ### Supported Parsers
 
-PentNote ships with 25 parser strategies:
+PentNote ships with 27 parser strategies:
 
 | Category | Parsers |
 | --- | --- |
 | Network | Nmap |
-| Active Directory | CrackMapExec/NetExec, Impacket secretsdump, BloodHound, Kerbrute, LDAPDomainDump, Rubeus, Certipy, Mimikatz, enum4linux-ng, Responder, PowerView, evil-winrm |
+| Active Directory | CrackMapExec/NetExec, Impacket secretsdump, BloodHound, Kerbrute, LDAPDomainDump, Rubeus, Certipy, Mimikatz, enum4linux-ng, Responder, PowerView, evil-winrm, smbclient, bloodyAD |
 | Web | Gobuster, Feroxbuster, Nikto, Nuclei, sqlmap |
 | Post-exploitation | WinPEAS, LinPEAS, Seatbelt, LaZagne |
 | C2 | Sliver, Havoc |
@@ -243,15 +243,17 @@ bundled Enterprise dataset's total technique count.
 
 ## Reports
 
-PentNote reports are designed to be client-facing:
+PentNote's Markdown report is structured as a client-facing deliverable:
 
-- Executive summary
-- Severity counts and affected assets
+- Titled header with classification and an engagement metadata table (empty
+  fields are omitted rather than shown as `N/A`)
+- Data-driven executive summary that names the top risk, with severity counts
 - Attack chains detected
-- Top risks ordered by `RiskScore`
-- Remediation roadmap with effort estimates
-- Findings detail
-- D3FEND recommendations
+- Top risks ordered by `RiskScore`, with exploitability
+- Remediation roadmap with finding-specific recommendations and effort estimates
+- Affected-asset inventory — real hosts only; tool names are never listed as assets
+- Detailed findings with named MITRE ATT&CK techniques and, with `--with-defenses`,
+  per-finding D3FEND countermeasures
 - Evidence appendix
 - MITRE ATT&CK coverage
 

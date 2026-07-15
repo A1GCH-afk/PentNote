@@ -3,6 +3,39 @@
 All notable changes to PentNote are documented here.
 Format follows Keep a Changelog (keepachangelog.com).
 
+## [Unreleased]
+
+### Added
+- **smbclient parser.** `smbclient -L` share listings and interactive directory
+  listings are now parsed into structured findings — the target host (445/tcp),
+  the share table (flagging non-default shares), and file listings — mapped to
+  ATT&CK T1135 (Network Share Discovery) and T1039 (Data from Network Shared
+  Drive). Bracketed-paste terminal noise (`\x1b[?2004h`) from interactive
+  captures is stripped. This output previously fell through to the universal
+  fallback and recorded nothing useful.
+- **bloodyAD parser.** `add shadowCredentials` output is parsed into a single
+  recovered NTLM credential plus a Shadow Credentials finding (ATT&CK T1556 +
+  T1550.003), capturing the stored TGT (ccache) for Pass-the-Ticket and keeping
+  the KeyCredential RSA-key fingerprint as finding context.
+
+### Changed
+- **The Markdown report is restructured as a client-facing deliverable.** It now
+  opens with a titled header, classification, and an engagement metadata table
+  that omits empty fields instead of printing `N/A`; a data-driven executive
+  summary names the top risk; findings carry named MITRE ATT&CK techniques and
+  per-finding D3FEND countermeasures; the remediation roadmap gives
+  finding-specific guidance; and tool names (e.g. `evil-winrm`) are filtered out
+  of the affected-asset inventory so an asset is always a real host. The stable
+  section order and empty-marker conventions are unchanged, and the HTML report
+  is unaffected.
+
+### Fixed
+- The universal fallback parser no longer splits a single hash into fragments. A
+  64-char SHA-256 (e.g. bloodyAD's "sha256 of RSA key") was matched as two bogus
+  32-char hashes because the matcher tried the 32-char form first; it now
+  captures a maximal hex run and accepts it only at a recognised digest length
+  (32/40/64).
+
 ## [1.1.0] - 2026-07-13
 
 ### Added
