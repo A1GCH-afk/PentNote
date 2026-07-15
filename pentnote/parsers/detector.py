@@ -25,6 +25,7 @@ from pentnote.parsers.v2.powerview import PowerViewParser
 from pentnote.parsers.v2.responder import ResponderParser
 from pentnote.parsers.v2.rubeus import RubeusParser
 from pentnote.parsers.v2.seatbelt import SeatbeltParser
+from pentnote.parsers.v2.smbclient import SmbClientParser
 from pentnote.parsers.v2.sqlmap import SQLMapParser
 from pentnote.parsers.v15.bloodhound import BloodHoundParser
 from pentnote.parsers.v15.feroxbuster import FeroxbusterParser
@@ -65,6 +66,7 @@ BUILTIN_PARSERS: tuple[type[AbstractParser], ...] = (
     EvilWinRMParser,
     PowerViewParser,
     SeatbeltParser,
+    SmbClientParser,
     LaZagneParser,
     SliverLogParser,
     HavocLogParser,

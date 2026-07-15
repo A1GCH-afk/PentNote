@@ -1,0 +1,12 @@
+# Command: smbclient //10.10.11.174/Reports -U robb.stark --password=Winter2026!
+Try "help" to get a list of possible commands.
+[?2004hsmb: \> ls
+[?2004l  .                                   D        0  Mon Jan  6 12:00:00 2026
+  ..                                  D        0  Mon Jan  6 12:00:00 2026
+  Q1_Report.log                       A     1294  Mon Jan  6 12:00:00 2026
+  Q2_Report.log                       A     8488  Mon Jan  6 12:00:00 2026
+  Summary.log                         A      468  Mon Jan  6 12:00:00 2026
+
+		6657279 blocks of size 4096. 1548379 blocks available
+[?2004hsmb: \> mget *
+[?2004l
